@@ -1,37 +1,37 @@
-import Phaser from 'phaser';
-import { GameScene } from './scenes/GameScene';
-import { UIScene } from './scenes/UIScene';
+import { Application } from 'pixi.js';
+import { Game } from './Game';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './config';
 
-const config: Phaser.Types.Core.GameConfig = {
-    type: Phaser.AUTO,
-    parent: 'game-container',
-    width: CANVAS_WIDTH,
-    height: CANVAS_HEIGHT,
-    backgroundColor: '#1a1a2e',
-    physics: {
-        default: 'arcade',
-        arcade: {
-            debug: false,
-            gravity: { x: 0, y: 0 },
-        },
-    },
-    scene: [GameScene, UIScene],
-    scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-    },
-    render: {
-        pixelArt: false,
-        antialias: true,
-    },
-};
+async function init() {
+    const app = new Application();
 
-// Wait for DOM to be ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        new Phaser.Game(config);
+    await app.init({
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+        backgroundColor: 0x1a1a2e,
+        roundPixels: true,
+        antialias: false,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
     });
+
+    const container = document.getElementById('game-container');
+    if (container) {
+        container.appendChild(app.canvas);
+    } else {
+        document.body.appendChild(app.canvas);
+    }
+
+    const game = new Game(app);
+
+    app.ticker.add((ticker) => {
+        game.update(ticker.deltaMS / 1000);
+    });
+}
+
+// Wait for DOM
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
 } else {
-    new Phaser.Game(config);
+    init();
 }

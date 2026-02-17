@@ -2,42 +2,58 @@
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>PixelClash - Particle Tower Defense</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>">
-    <!-- Pico CSS - minimal dark mode -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
-        :root {
-            --pico-font-family: 'Courier New', monospace;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a2e;
+            font-family: 'Courier New', monospace;
+            touch-action: none;
         }
 
         body {
-            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 1rem;
-            margin: 0;
-            overflow: hidden;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
         }
 
         h1 {
+            color: #4488ff;
+            font-size: clamp(1rem, 4vw, 1.5rem);
             margin-bottom: 0.5rem;
-            font-size: 1.5rem;
-            color: var(--pico-primary);
+            text-shadow: 0 0 10px rgba(68, 136, 255, 0.5);
         }
 
         #game-container {
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            border: 2px solid var(--pico-muted-border-color);
+            border: 2px solid #333355;
+            max-width: 100%;
+            max-height: calc(100vh - 100px);
         }
 
         #game-container canvas {
             display: block;
+            max-width: 100%;
+            max-height: calc(100vh - 100px);
+            object-fit: contain;
         }
 
         #loading {
@@ -46,22 +62,68 @@
             left: 50%;
             transform: translate(-50%, -50%);
             font-size: 24px;
-            color: var(--pico-primary);
+            color: #4488ff;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
         }
 
         #instructions {
-            margin-top: 1rem;
-            font-size: 0.85rem;
-            color: var(--pico-muted-color);
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: #666688;
             text-align: center;
+            padding: 0 1rem;
         }
 
         #instructions kbd {
-            background: var(--pico-card-background-color);
-            border: 1px solid var(--pico-muted-border-color);
+            background: #222244;
+            border: 1px solid #333355;
             border-radius: 4px;
-            padding: 0.1rem 0.4rem;
+            padding: 0.1rem 0.3rem;
             margin: 0 0.1rem;
+        }
+
+        /* Mobile optimizations */
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1rem;
+                margin-bottom: 0.25rem;
+            }
+
+            #instructions {
+                display: none;
+            }
+
+            #game-container {
+                border-radius: 4px;
+                border-width: 1px;
+            }
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            /* Touch device - hide keyboard instructions */
+            #instructions {
+                display: none;
+            }
+        }
+
+        /* Landscape phone optimization */
+        @media (max-height: 500px) and (orientation: landscape) {
+            h1 {
+                display: none;
+            }
+
+            #game-container {
+                max-height: 100vh;
+            }
+
+            body {
+                padding: 0;
+            }
         }
     </style>
 </head>
@@ -72,9 +134,8 @@
     </div>
     <div id="instructions">
         <kbd>1-4</kbd> Select tower |
-        <kbd>Click</kbd> Place / Select |
-        <kbd>P</kbd> Pause |
-        <kbd>Esc</kbd> Deselect
+        <kbd>Tap</kbd> Place / Select |
+        <kbd>P</kbd> Pause
     </div>
     <script src="dist/bundle.js"></script>
     <script>
@@ -85,6 +146,22 @@
                 if (loading) loading.style.display = 'none';
             }, 500);
         });
+
+        // Prevent zoom on double tap
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
+            }
+            lastTouchEnd = now;
+        }, { passive: false });
+
+        // Prevent pull-to-refresh
+        document.body.addEventListener('touchmove', (e) => {
+            if (e.touches.length > 1) return;
+            e.preventDefault();
+        }, { passive: false });
     </script>
 </body>
 </html>
