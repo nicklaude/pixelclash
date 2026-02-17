@@ -1,27 +1,26 @@
-import Phaser from 'phaser';
+import { Container, Graphics, Text } from 'pixi.js';
 import { EmitterData, EmitterType, Vec2 } from '../types';
 import { EMITTER_DEFS, CELL_SIZE, getUpgradeMultiplier, UI_TOP_HEIGHT } from '../config';
 
-export class Emitter extends Phaser.GameObjects.Container {
+export class Emitter extends Container {
     data_: EmitterData;
-    base: Phaser.GameObjects.Rectangle;
-    barrel: Phaser.GameObjects.Rectangle;
-    nozzle: Phaser.GameObjects.Rectangle;
-    levelText: Phaser.GameObjects.Text;
-    rangeCircle: Phaser.GameObjects.Arc;
-    selectionRing: Phaser.GameObjects.Arc;
+    base: Graphics;
+    barrel: Graphics;
+    rangeCircle: Graphics;
+    selectionRing: Graphics;
+    levelText: Text;
 
     constructor(
-        scene: Phaser.Scene,
         gridX: number,
         gridY: number,
         id: number,
         type: EmitterType
     ) {
+        super();
+
         const pixelX = gridX * CELL_SIZE + CELL_SIZE / 2;
         const pixelY = gridY * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
-
-        super(scene, pixelX, pixelY);
+        this.position.set(pixelX, pixelY);
 
         this.data_ = {
             id,
@@ -37,59 +36,49 @@ export class Emitter extends Phaser.GameObjects.Container {
         const def = EMITTER_DEFS[type];
         const size = CELL_SIZE * 0.7;
 
+        // Range circle (behind everything)
+        this.rangeCircle = new Graphics();
+        this.rangeCircle.visible = false;
+        this.addChild(this.rangeCircle);
+
+        // Selection ring
+        this.selectionRing = new Graphics();
+        this.selectionRing.visible = false;
+        this.addChild(this.selectionRing);
+
         // Base
-        this.base = scene.add.rectangle(0, 0, size, size, def.color);
-        this.add(this.base);
+        this.base = new Graphics();
+        this.base.rect(-size / 2, -size / 2, size, size).fill(def.color);
+        this.addChild(this.base);
 
         // Barrel (rotates)
-        this.barrel = scene.add.rectangle(size * 0.3, 0, size * 0.6, 8, this.darkenColor(def.color));
-        this.barrel.setOrigin(0, 0.5);
-        this.add(this.barrel);
+        this.barrel = new Graphics();
+        this.barrel.rect(0, -4, size * 0.6, 8).fill(this.darkenColor(def.color));
+        this.addChild(this.barrel);
 
-        // Nozzle
-        this.nozzle = scene.add.rectangle(size * 0.5, 0, 6, 6, 0x333333);
-        this.add(this.nozzle);
-
-        // Level indicator
-        this.levelText = scene.add.text(0, size / 2 + 8, '', {
-            fontSize: '10px',
-            fontFamily: 'monospace',
-            color: '#ffffff',
+        // Level text
+        this.levelText = new Text({
+            text: '',
+            style: { fontFamily: 'monospace', fontSize: 10, fill: '#ffffff' }
         });
-        this.levelText.setOrigin(0.5, 0);
-        this.add(this.levelText);
+        this.levelText.anchor.set(0.5, 0);
+        this.levelText.position.set(0, size / 2 + 4);
+        this.addChild(this.levelText);
 
-        // Range circle (hidden by default)
-        const range = def.range * CELL_SIZE;
-        this.rangeCircle = scene.add.arc(0, 0, range, 0, 360, false, 0x4488ff, 0.1);
-        this.rangeCircle.setStrokeStyle(2, 0x4488ff, 0.5);
-        this.rangeCircle.setVisible(false);
-        this.add(this.rangeCircle);
-
-        // Selection ring (hidden by default)
-        this.selectionRing = scene.add.arc(0, 0, size * 0.7, 0, 360, false, 0xffffff, 0);
-        this.selectionRing.setStrokeStyle(2, 0xffffff, 1);
-        this.selectionRing.setVisible(false);
-        this.add(this.selectionRing);
-
-        scene.add.existing(this);
-        this.setDepth(10);
+        this.updateRangeCircle();
+        this.updateSelectionRing();
     }
 
-    updateEmitter(dt: number) {
+    update(dt: number) {
         this.data_.cooldown = Math.max(0, this.data_.cooldown - dt);
 
         // Update level text
         if (this.data_.level > 0) {
-            this.levelText.setText(`+${this.data_.level}`);
+            this.levelText.text = `+${this.data_.level}`;
         }
 
         // Rotate barrel
-        this.barrel.setRotation(this.data_.angle);
-        this.nozzle.setPosition(
-            Math.cos(this.data_.angle) * CELL_SIZE * 0.5,
-            Math.sin(this.data_.angle) * CELL_SIZE * 0.5
-        );
+        this.barrel.rotation = this.data_.angle;
     }
 
     canFire(): boolean {
@@ -100,11 +89,6 @@ export class Emitter extends Phaser.GameObjects.Container {
         const def = EMITTER_DEFS[this.data_.type];
         const mult = getUpgradeMultiplier(this.data_.level);
         this.data_.cooldown = 1 / (def.fireRate * mult.fireRate);
-    }
-
-    setSelected(selected: boolean) {
-        this.selectionRing.setVisible(selected);
-        this.rangeCircle.setVisible(selected);
     }
 
     aimAt(targetX: number, targetY: number) {
@@ -119,21 +103,34 @@ export class Emitter extends Phaser.GameObjects.Container {
         return def.range * mult.range * CELL_SIZE;
     }
 
-    getPosition(): Vec2 {
-        return { x: this.x, y: this.y };
+    setSelected(selected: boolean) {
+        this.rangeCircle.visible = selected;
+        this.selectionRing.visible = selected;
     }
 
     upgrade() {
         this.data_.level++;
-
-        // Update range circle
-        const range = this.getRange();
-        this.rangeCircle.setRadius(range);
+        this.updateRangeCircle();
     }
 
     getSellValue(): number {
         const def = EMITTER_DEFS[this.data_.type];
         return Math.floor(def.cost * 0.6 * (1 + this.data_.level * 0.3));
+    }
+
+    private updateRangeCircle() {
+        const range = this.getRange();
+        this.rangeCircle.clear();
+        this.rangeCircle.circle(0, 0, range)
+            .fill({ color: 0x4488ff, alpha: 0.1 })
+            .stroke({ color: 0x4488ff, width: 2, alpha: 0.5 });
+    }
+
+    private updateSelectionRing() {
+        const size = CELL_SIZE * 0.7 * 0.7;
+        this.selectionRing.clear();
+        this.selectionRing.circle(0, 0, size)
+            .stroke({ color: 0xffffff, width: 2 });
     }
 
     private darkenColor(color: number): number {
