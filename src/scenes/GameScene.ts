@@ -7,11 +7,11 @@ import {
     GameState, EmitterType, EnemyType, Vec2, ParticleType
 } from '../types';
 import {
-    GRID_SIZE, CELL_SIZE, CANVAS_WIDTH, CANVAS_HEIGHT,
+    GRID_SIZE, CELL_SIZE, GAME_WIDTH, GAME_HEIGHT, UI_TOP_HEIGHT,
     PATH, NEXUS_X, NEXUS_Y, getPathCells,
     EMITTER_DEFS, ENEMY_DEFS, getUpgradeMultiplier,
     STARTING_GOLD, STARTING_HEALTH, generateWave, getUpgradeCost,
-    MAX_PARTICLES
+    MAX_PARTICLES, AUTO_WAVE_DELAY
 } from '../config';
 
 export class GameScene extends Phaser.Scene {
@@ -44,6 +44,13 @@ export class GameScene extends Phaser.Scene {
 
     // Nexus animation
     nexusPulse: number = 0;
+
+    // Auto-wave timer
+    autoWaveTimer: number = 0;
+    autoWaveEnabled: boolean = true;
+
+    // Game area offset (for UI)
+    gameOffsetY: number = UI_TOP_HEIGHT;
 
     constructor() {
         super({ key: 'GameScene' });
@@ -120,6 +127,9 @@ export class GameScene extends Phaser.Scene {
 
         // Launch UI scene
         this.scene.launch('UIScene', { gameScene: this });
+
+        // Start first wave automatically after a short delay
+        this.autoWaveTimer = AUTO_WAVE_DELAY;
     }
 
     update(time: number, delta: number) {
@@ -152,6 +162,15 @@ export class GameScene extends Phaser.Scene {
             this.state.gameOver = true;
             this.events.emit('gameOver', this.state.wave);
         }
+
+        // Auto-wave system
+        if (this.autoWaveEnabled && !this.state.waveActive) {
+            this.autoWaveTimer -= delta;
+            if (this.autoWaveTimer <= 0) {
+                this.startWave();
+                this.autoWaveTimer = AUTO_WAVE_DELAY;
+            }
+        }
     }
 
     // ========== Grid Helpers ==========
@@ -159,13 +178,13 @@ export class GameScene extends Phaser.Scene {
     gridToPixel(gx: number, gy: number): Vec2 {
         return {
             x: gx * CELL_SIZE + CELL_SIZE / 2,
-            y: gy * CELL_SIZE + CELL_SIZE / 2,
+            y: gy * CELL_SIZE + CELL_SIZE / 2 + this.gameOffsetY,
         };
     }
 
     pixelToGrid(px: number, py: number): { x: number; y: number } | null {
         const gx = Math.floor(px / CELL_SIZE);
-        const gy = Math.floor(py / CELL_SIZE);
+        const gy = Math.floor((py - this.gameOffsetY) / CELL_SIZE);
         if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) return null;
         return { x: gx, y: gy };
     }
@@ -201,7 +220,7 @@ export class GameScene extends Phaser.Scene {
                 }
 
                 g.fillStyle(color, 1);
-                g.fillRect(x * CELL_SIZE + 1, y * CELL_SIZE + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+                g.fillRect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + this.gameOffsetY, CELL_SIZE - 2, CELL_SIZE - 2);
             }
         }
     }
@@ -211,7 +230,7 @@ export class GameScene extends Phaser.Scene {
         g.clear();
 
         const cx = NEXUS_X * CELL_SIZE + CELL_SIZE / 2;
-        const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2;
+        const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2 + this.gameOffsetY;
 
         this.nexusPulse += 0.05;
         const pulse = 0.7 + Math.sin(this.nexusPulse) * 0.3;
@@ -321,7 +340,7 @@ export class GameScene extends Phaser.Scene {
             g.fillStyle(valid ? 0x00ff00 : 0xff0000, 0.3);
             g.fillRect(
                 this.hoverCell.x * CELL_SIZE,
-                this.hoverCell.y * CELL_SIZE,
+                this.hoverCell.y * CELL_SIZE + this.gameOffsetY,
                 CELL_SIZE,
                 CELL_SIZE
             );
@@ -329,7 +348,7 @@ export class GameScene extends Phaser.Scene {
             g.lineStyle(2, valid ? 0x00ff00 : 0xff0000, 1);
             g.strokeRect(
                 this.hoverCell.x * CELL_SIZE + 1,
-                this.hoverCell.y * CELL_SIZE + 1,
+                this.hoverCell.y * CELL_SIZE + 1 + this.gameOffsetY,
                 CELL_SIZE - 2,
                 CELL_SIZE - 2
             );
@@ -845,6 +864,15 @@ export class GameScene extends Phaser.Scene {
                 this.startWave();
             }
         }
+        if (event.key === 'p' || event.key === 'P') {
+            this.togglePause();
+        }
+    }
+
+    togglePause() {
+        this.autoWaveEnabled = !this.autoWaveEnabled;
+        this.state.paused = !this.autoWaveEnabled && !this.state.waveActive;
+        this.events.emit('pauseChanged', !this.autoWaveEnabled);
     }
 
     setSelectedEmitterType(type: EmitterType | null) {

@@ -182,15 +182,19 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     updateHealthBar() {
         const def = ENEMY_DEFS[this.data_.type];
-        const barWidth = def.size * 2;
-        const barHeight = 4;
-        const barY = -def.size - 8;
-        const healthPct = this.data_.health / this.data_.maxHealth;
+        const barWidth = Math.max(16, def.size * 1.2);  // Smaller, proportional bar
+        const barHeight = 3;
+        const barY = -def.size - 6;
+        const healthPct = Math.max(0, this.data_.health / this.data_.maxHealth);
 
         this.healthBar.clear();
+        this.healthBar.setDepth(20);
+
+        // Only show if damaged
+        if (healthPct >= 1) return;
 
         // Background
-        this.healthBar.fillStyle(0x333333, 1);
+        this.healthBar.fillStyle(0x222222, 0.8);
         this.healthBar.fillRect(this.x - barWidth/2, this.y + barY, barWidth, barHeight);
 
         // Health
@@ -201,7 +205,7 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.healthBar.fillRect(this.x - barWidth/2, this.y + barY, barWidth * healthPct, barHeight);
 
         // Border
-        this.healthBar.lineStyle(1, 0x000000, 1);
+        this.healthBar.lineStyle(1, 0x000000, 0.5);
         this.healthBar.strokeRect(this.x - barWidth/2, this.y + barY, barWidth, barHeight);
     }
 

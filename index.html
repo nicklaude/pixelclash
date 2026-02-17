@@ -1,31 +1,39 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>PixelClash - Particle Tower Defense</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>">
+    <!-- Pico CSS - minimal dark mode -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --pico-font-family: 'Courier New', monospace;
         }
 
         body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            margin: 0;
             overflow: hidden;
-            background: #111;
-            font-family: 'Courier New', monospace;
-            color: #fff;
-            user-select: none;
+        }
+
+        h1 {
+            margin-bottom: 0.5rem;
+            font-size: 1.5rem;
+            color: var(--pico-primary);
         }
 
         #game-container {
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            border: 2px solid var(--pico-muted-border-color);
         }
 
         #game-container canvas {
@@ -38,37 +46,35 @@
             left: 50%;
             transform: translate(-50%, -50%);
             font-size: 24px;
-            color: #4488ff;
+            color: var(--pico-primary);
         }
 
         #instructions {
-            position: absolute;
-            bottom: 120px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-size: 12px;
-            color: #888;
+            margin-top: 1rem;
+            font-size: 0.85rem;
+            color: var(--pico-muted-color);
             text-align: center;
-            pointer-events: none;
         }
 
-        #instructions strong {
-            color: #4488ff;
+        #instructions kbd {
+            background: var(--pico-card-background-color);
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: 4px;
+            padding: 0.1rem 0.4rem;
+            margin: 0 0.1rem;
         }
     </style>
 </head>
 <body>
+    <h1>🏰 PixelClash</h1>
     <div id="game-container">
         <div id="loading">Loading...</div>
     </div>
     <div id="instructions">
-        <strong>[1-4]</strong> Select tower type |
-        <strong>[Click]</strong> Place tower / Select |
-        <strong>[Space]</strong> Start wave |
-        <strong>[Esc]</strong> Deselect
+        <kbd>1-4</kbd> Select tower |
+        <kbd>Click</kbd> Place / Select |
+        <kbd>P</kbd> Pause |
+        <kbd>Esc</kbd> Deselect
     </div>
     <script src="dist/bundle.js"></script>
     <script>

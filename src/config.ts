@@ -1,32 +1,39 @@
 import { EmitterDef, EnemyDef, PathNode, WaveDef } from './types';
 
 // Grid size (in cells)
-export const GRID_SIZE = 20;
-export const CELL_SIZE = 32;  // pixels per cell
-export const CANVAS_WIDTH = GRID_SIZE * CELL_SIZE;
-export const CANVAS_HEIGHT = GRID_SIZE * CELL_SIZE;
+export const GRID_SIZE = 16;  // Smaller grid for better fit
+export const CELL_SIZE = 36;  // pixels per cell
+export const UI_TOP_HEIGHT = 50;
+export const UI_BOTTOM_HEIGHT = 80;
+export const GAME_WIDTH = GRID_SIZE * CELL_SIZE;
+export const GAME_HEIGHT = GRID_SIZE * CELL_SIZE;
+export const CANVAS_WIDTH = GAME_WIDTH;
+export const CANVAS_HEIGHT = GAME_HEIGHT + UI_TOP_HEIGHT + UI_BOTTOM_HEIGHT;
 
 // Nexus position (center of grid)
 export const NEXUS_X = Math.floor(GRID_SIZE / 2);
 export const NEXUS_Y = Math.floor(GRID_SIZE / 2);
 
-// Path: enemies enter from corners, spiral to nexus
+// Auto-wave timing
+export const AUTO_WAVE_DELAY = 3000;  // ms between waves
+
+// Path: enemies enter from corner, spiral to nexus (adjusted for 16x16 grid)
 export const PATH: PathNode[] = [
     { x: 0, y: 0 },
-    { x: 19, y: 0 },
-    { x: 19, y: 19 },
-    { x: 1, y: 19 },
+    { x: 15, y: 0 },
+    { x: 15, y: 15 },
+    { x: 1, y: 15 },
     { x: 1, y: 1 },
-    { x: 18, y: 1 },
-    { x: 18, y: 18 },
-    { x: 2, y: 18 },
+    { x: 14, y: 1 },
+    { x: 14, y: 14 },
+    { x: 2, y: 14 },
     { x: 2, y: 2 },
-    { x: 17, y: 2 },
-    { x: 17, y: 17 },
-    { x: 3, y: 17 },
+    { x: 13, y: 2 },
+    { x: 13, y: 13 },
+    { x: 3, y: 13 },
     { x: 3, y: 3 },
-    { x: 10, y: 3 },
-    { x: 10, y: 10 },  // nexus
+    { x: 8, y: 3 },
+    { x: 8, y: 8 },  // nexus
 ];
 
 // Cells occupied by path
@@ -118,68 +125,68 @@ export const EMITTER_DEFS: Record<string, EmitterDef> = {
     },
 };
 
-// Enemy definitions
+// Enemy definitions - speeds increased for faster gameplay
 export const ENEMY_DEFS: Record<string, EnemyDef> = {
     grunt: {
         type: 'grunt',
         health: 30,
-        speed: 60,              // pixels per second
+        speed: 100,             // pixels per second (was 60)
         reward: 5,
         color: 0xcc4444,
-        size: 12,
+        size: 10,
         mass: 1,
-        friction: 0.92,
+        friction: 0.88,         // decay knockback faster
     },
     fast: {
         type: 'fast',
         health: 15,
-        speed: 120,
+        speed: 180,             // (was 120)
         reward: 7,
         color: 0xcccc44,
-        size: 8,
+        size: 7,
         mass: 0.5,              // gets pushed around easily
-        friction: 0.85,         // knockback decays faster
+        friction: 0.82,         // knockback decays faster
     },
     tank: {
         type: 'tank',
-        health: 120,
-        speed: 35,
+        health: 100,
+        speed: 55,              // (was 35)
         reward: 15,
         color: 0x6644aa,
-        size: 18,
+        size: 14,
         mass: 4,                // very resistant to knockback
-        friction: 0.96,
+        friction: 0.92,
     },
     shielded: {
         type: 'shielded',
         health: 50,
-        speed: 50,
+        speed: 80,              // (was 50)
         reward: 10,
         color: 0x44aa66,
-        size: 14,
+        size: 11,
         mass: 1.5,
-        friction: 0.94,
+        friction: 0.90,
     },
     splitter: {
         type: 'splitter',
         health: 40,
-        speed: 55,
+        speed: 90,              // (was 55)
         reward: 12,
         color: 0xff88ff,
-        size: 14,
+        size: 11,
         mass: 1,
-        friction: 0.9,
+        friction: 0.86,
         splitCount: 2,          // splits into 2 smaller enemies on death
     },
     boss: {
         type: 'boss',
-        health: 500,
-        speed: 25,
+        health: 400,
+        speed: 40,              // (was 25)
         reward: 100,
         color: 0x882222,
-        size: 28,
+        size: 22,
         mass: 10,               // barely moves from knockback
-        friction: 0.98,
+        friction: 0.95,
         spawnMinions: true,
     },
 };
@@ -247,5 +254,5 @@ export const MAX_PARTICLES = 500;
 export const MAX_ENEMIES = 100;
 
 // Physics constants
-export const KNOCKBACK_VELOCITY_THRESHOLD = 30;  // Below this, resume path following
+export const KNOCKBACK_VELOCITY_THRESHOLD = 15;  // Below this, resume path following (lowered so they don't get stuck)
 export const KNOCKBACK_FRICTION_FACTOR = 0.03;   // Per-frame velocity reduction multiplier

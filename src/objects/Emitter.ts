@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { EmitterData, EmitterType, Vec2 } from '../types';
-import { EMITTER_DEFS, CELL_SIZE, getUpgradeMultiplier } from '../config';
+import { EMITTER_DEFS, CELL_SIZE, getUpgradeMultiplier, UI_TOP_HEIGHT } from '../config';
 
 export class Emitter extends Phaser.GameObjects.Container {
     data_: EmitterData;
@@ -19,7 +19,7 @@ export class Emitter extends Phaser.GameObjects.Container {
         type: EmitterType
     ) {
         const pixelX = gridX * CELL_SIZE + CELL_SIZE / 2;
-        const pixelY = gridY * CELL_SIZE + CELL_SIZE / 2;
+        const pixelY = gridY * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
 
         super(scene, pixelX, pixelY);
 
