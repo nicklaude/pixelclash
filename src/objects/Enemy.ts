@@ -154,6 +154,12 @@ export class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.data_.slowFactor = 1;
 
         this.updateHealthBar();
+
+        // Check if dead (from any damage source)
+        if (this.data_.health <= 0) {
+            return false;
+        }
+
         return true; // Still alive
     }
 
