@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { GameScene } from './GameScene';
 import { Emitter } from '../objects/Emitter';
 import { EmitterType } from '../types';
-import { EMITTER_DEFS, getUpgradeCost, getUpgradeMultiplier } from '../config';
+import { EMITTER_DEFS, getUpgradeCost, getUpgradeMultiplier, UI_TOP_HEIGHT, UI_BOTTOM_HEIGHT, CANVAS_HEIGHT } from '../config';
 
 export class UIScene extends Phaser.Scene {
     gameScene!: GameScene;
@@ -11,9 +11,10 @@ export class UIScene extends Phaser.Scene {
     goldText!: Phaser.GameObjects.Text;
     healthText!: Phaser.GameObjects.Text;
     waveText!: Phaser.GameObjects.Text;
+    pauseText!: Phaser.GameObjects.Text;
 
     towerButtons: Map<EmitterType, Phaser.GameObjects.Container> = new Map();
-    startWaveButton!: Phaser.GameObjects.Container;
+    pauseButton!: Phaser.GameObjects.Container;
     upgradeButton!: Phaser.GameObjects.Container;
     sellButton!: Phaser.GameObjects.Container;
 
@@ -57,7 +58,7 @@ export class UIScene extends Phaser.Scene {
 
     createTopHUD(width: number) {
         // Background
-        const bg = this.add.rectangle(width / 2, 25, width, 50, 0x000000, 0.7);
+        const bg = this.add.rectangle(width / 2, UI_TOP_HEIGHT / 2, width, UI_TOP_HEIGHT, 0x111122, 0.95);
 
         // Wave info
         this.waveText = this.add.text(20, 15, 'Wave: 0', {
@@ -67,50 +68,58 @@ export class UIScene extends Phaser.Scene {
         });
 
         // Health info
-        this.healthText = this.add.text(150, 15, 'Health: 20', {
+        this.healthText = this.add.text(140, 15, '❤️ 20', {
             fontSize: '18px',
             fontFamily: 'Courier New, monospace',
             color: '#ff6666',
         });
 
         // Gold info
-        this.goldText = this.add.text(300, 15, 'Gold: 120', {
+        this.goldText = this.add.text(240, 15, '💰 120', {
             fontSize: '18px',
             fontFamily: 'Courier New, monospace',
             color: '#ffcc44',
         });
+
+        // Pause indicator
+        this.pauseText = this.add.text(width - 80, 15, '▶ AUTO', {
+            fontSize: '14px',
+            fontFamily: 'Courier New, monospace',
+            color: '#44ff44',
+        });
     }
 
     createBottomHUD(width: number, height: number) {
+        const bottomY = height - UI_BOTTOM_HEIGHT / 2;
+
         // Background
-        const bg = this.add.rectangle(width / 2, height - 50, width, 100, 0x000000, 0.8);
+        const bg = this.add.rectangle(width / 2, bottomY, width, UI_BOTTOM_HEIGHT, 0x111122, 0.95);
 
         // Tower buttons
         const towers: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
-        const buttonWidth = 60;
-        const buttonHeight = 70;
-        const startX = 30;
+        const buttonWidth = 55;
+        const startX = 35;
 
         towers.forEach((type, index) => {
-            const x = startX + index * (buttonWidth + 10);
-            const y = height - 50;
+            const x = startX + index * (buttonWidth + 8);
+            const y = bottomY;
             const button = this.createTowerButton(x, y, type);
             this.towerButtons.set(type, button);
         });
 
-        // Start wave button
-        this.startWaveButton = this.createActionButton(
-            width - 120,
-            height - 60,
-            'Start Wave',
-            0x224422,
-            () => this.gameScene.startWave()
+        // Pause/Play button
+        this.pauseButton = this.createActionButton(
+            width - 60,
+            bottomY - 15,
+            '⏸ Pause',
+            0x333344,
+            () => this.gameScene.togglePause()
         );
 
         // Upgrade button (hidden by default)
         this.upgradeButton = this.createActionButton(
-            width - 120,
-            height - 60,
+            width - 60,
+            bottomY + 15,
             'Upgrade ($0)',
             0x333366,
             () => this.onUpgradeClick()
@@ -119,8 +128,8 @@ export class UIScene extends Phaser.Scene {
 
         // Sell button (hidden by default)
         this.sellButton = this.createActionButton(
-            width - 230,
-            height - 60,
+            width - 170,
+            bottomY + 15,
             'Sell ($0)',
             0x663333,
             () => this.onSellClick()
@@ -133,22 +142,31 @@ export class UIScene extends Phaser.Scene {
         const container = this.add.container(x, y);
 
         // Background
-        const bg = this.add.rectangle(0, 0, 55, 65, 0x222222, 0.9);
-        bg.setStrokeStyle(2, 0x555555);
+        const bg = this.add.rectangle(0, 0, 50, 60, 0x222233, 0.9);
+        bg.setStrokeStyle(2, 0x555566);
         container.add(bg);
 
         // Icon
-        const icon = this.add.rectangle(0, -12, 30, 30, def.color);
+        const icon = this.add.rectangle(0, -10, 25, 25, def.color);
         container.add(icon);
 
         // Cost text
-        const costText = this.add.text(0, 18, `$${def.cost}`, {
+        const costText = this.add.text(0, 16, `$${def.cost}`, {
             fontSize: '11px',
             fontFamily: 'Courier New, monospace',
             color: '#ffcc44',
         });
         costText.setOrigin(0.5);
         container.add(costText);
+
+        // Key hint
+        const keyHint = this.add.text(0, -28, `${['1','2','3','4'][['water','fire','electric','goo'].indexOf(type)]}`, {
+            fontSize: '10px',
+            fontFamily: 'Courier New, monospace',
+            color: '#888888',
+        });
+        keyHint.setOrigin(0.5);
+        container.add(keyHint);
 
         // Make interactive
         bg.setInteractive({ useHandCursor: true });
@@ -159,7 +177,7 @@ export class UIScene extends Phaser.Scene {
         });
         bg.on('pointerout', () => {
             const isSelected = this.gameScene.state.selectedEmitterType === type;
-            bg.setStrokeStyle(2, isSelected ? 0x4488ff : 0x555555);
+            bg.setStrokeStyle(2, isSelected ? 0x4488ff : 0x555566);
         });
         bg.on('pointerdown', () => {
             this.gameScene.setSelectedEmitterType(type);
@@ -181,12 +199,12 @@ export class UIScene extends Phaser.Scene {
     ): Phaser.GameObjects.Container {
         const container = this.add.container(x, y);
 
-        const bg = this.add.rectangle(0, 0, 100, 35, color, 0.9);
+        const bg = this.add.rectangle(0, 0, 100, 28, color, 0.9);
         bg.setStrokeStyle(2, 0x666666);
         container.add(bg);
 
         const label = this.add.text(0, 0, text, {
-            fontSize: '12px',
+            fontSize: '11px',
             fontFamily: 'Courier New, monospace',
             color: '#ffffff',
         });
@@ -205,29 +223,29 @@ export class UIScene extends Phaser.Scene {
     }
 
     createTowerInfoPanel(width: number, height: number) {
-        this.towerInfoPanel = this.add.container(width / 2, height - 130);
+        this.towerInfoPanel = this.add.container(width / 2, height - UI_BOTTOM_HEIGHT - 30);
         this.towerInfoPanel.setVisible(false);
 
-        const bg = this.add.rectangle(0, 0, 300, 40, 0x111111, 0.95);
-        bg.setStrokeStyle(1, 0x555555);
+        const bg = this.add.rectangle(0, 0, 280, 35, 0x111122, 0.95);
+        bg.setStrokeStyle(1, 0x555566);
         this.towerInfoPanel.add(bg);
 
-        this.towerInfoName = this.add.text(-140, -10, '', {
-            fontSize: '13px',
+        this.towerInfoName = this.add.text(-130, -8, '', {
+            fontSize: '12px',
             fontFamily: 'Courier New, monospace',
             color: '#4488ff',
         });
         this.towerInfoPanel.add(this.towerInfoName);
 
-        this.towerInfoLevel = this.add.text(-40, -10, '', {
-            fontSize: '13px',
+        this.towerInfoLevel = this.add.text(-30, -8, '', {
+            fontSize: '12px',
             fontFamily: 'Courier New, monospace',
             color: '#ffffff',
         });
         this.towerInfoPanel.add(this.towerInfoLevel);
 
-        this.towerInfoStats = this.add.text(-140, 5, '', {
-            fontSize: '11px',
+        this.towerInfoStats = this.add.text(-130, 6, '', {
+            fontSize: '10px',
             fontFamily: 'Courier New, monospace',
             color: '#aaaaaa',
         });
@@ -245,7 +263,7 @@ export class UIScene extends Phaser.Scene {
 
         // Title
         const title = this.add.text(0, -60, 'Game Over!', {
-            fontSize: '48px',
+            fontSize: '42px',
             fontFamily: 'Courier New, monospace',
             color: '#ff4444',
         });
@@ -254,7 +272,7 @@ export class UIScene extends Phaser.Scene {
 
         // Final wave
         this.finalWaveText = this.add.text(0, 0, 'You survived 0 waves', {
-            fontSize: '20px',
+            fontSize: '18px',
             fontFamily: 'Courier New, monospace',
             color: '#aaaaaa',
         });
@@ -274,27 +292,19 @@ export class UIScene extends Phaser.Scene {
         const gs = this.gameScene;
 
         gs.events.on('goldChanged', (gold: number) => {
-            this.goldText.setText(`Gold: ${gold}`);
+            this.goldText.setText(`💰 ${gold}`);
             this.updateTowerButtons();
         });
 
         gs.events.on('healthChanged', (health: number) => {
-            this.healthText.setText(`Health: ${health}`);
+            this.healthText.setText(`❤️ ${health}`);
         });
 
         gs.events.on('waveStarted', (wave: number) => {
             this.waveText.setText(`Wave: ${wave}`);
-            ((this.startWaveButton as any).label as Phaser.GameObjects.Text)
-                .setText(`Wave ${wave}...`);
-            ((this.startWaveButton as any).bg as Phaser.GameObjects.Rectangle)
-                .setFillStyle(0x442222);
         });
 
         gs.events.on('waveComplete', (wave: number) => {
-            ((this.startWaveButton as any).label as Phaser.GameObjects.Text)
-                .setText('Start Wave');
-            ((this.startWaveButton as any).bg as Phaser.GameObjects.Rectangle)
-                .setFillStyle(0x224422);
             this.updateTowerButtons();
         });
 
@@ -304,12 +314,10 @@ export class UIScene extends Phaser.Scene {
 
         gs.events.on('emitterSelected', (emitter: Emitter) => {
             this.showTowerInfo(emitter);
-            this.startWaveButton.setVisible(false);
         });
 
         gs.events.on('emitterDeselected', () => {
             this.hideTowerInfo();
-            this.startWaveButton.setVisible(true);
         });
 
         gs.events.on('emitterUpgraded', (emitter: Emitter) => {
@@ -320,12 +328,16 @@ export class UIScene extends Phaser.Scene {
             this.finalWaveText.setText(`You survived ${wave} waves`);
             this.gameOverPanel.setVisible(true);
         });
+
+        gs.events.on('pauseChanged', (isPaused: boolean) => {
+            this.updatePauseButton(isPaused);
+        });
     }
 
     updateUI() {
         const gs = this.gameScene;
-        this.goldText.setText(`Gold: ${gs.state.gold}`);
-        this.healthText.setText(`Health: ${gs.state.health}`);
+        this.goldText.setText(`💰 ${gs.state.gold}`);
+        this.healthText.setText(`❤️ ${gs.state.health}`);
         this.waveText.setText(`Wave: ${gs.state.wave}`);
         this.updateTowerButtons();
     }
@@ -340,14 +352,31 @@ export class UIScene extends Phaser.Scene {
             const isSelected = gs.state.selectedEmitterType === type;
 
             container.setAlpha(canAfford ? 1 : 0.4);
-            bg.setStrokeStyle(2, isSelected ? 0x4488ff : 0x555555);
+            bg.setStrokeStyle(2, isSelected ? 0x4488ff : 0x555566);
 
             if (isSelected) {
                 bg.setFillStyle(0x334466, 0.9);
             } else {
-                bg.setFillStyle(0x222222, 0.9);
+                bg.setFillStyle(0x222233, 0.9);
             }
         });
+    }
+
+    updatePauseButton(isPaused: boolean) {
+        const label = (this.pauseButton as any).label as Phaser.GameObjects.Text;
+        const bg = (this.pauseButton as any).bg as Phaser.GameObjects.Rectangle;
+
+        if (isPaused) {
+            label.setText('▶ Play');
+            bg.setFillStyle(0x224422, 0.9);
+            this.pauseText.setText('⏸ PAUSED');
+            this.pauseText.setColor('#ff6666');
+        } else {
+            label.setText('⏸ Pause');
+            bg.setFillStyle(0x333344, 0.9);
+            this.pauseText.setText('▶ AUTO');
+            this.pauseText.setColor('#44ff44');
+        }
     }
 
     showTowerInfo(emitter: Emitter) {
@@ -396,7 +425,6 @@ export class UIScene extends Phaser.Scene {
         if (gs.state.selectedEmitterId !== null) {
             gs.sellEmitter(gs.state.selectedEmitterId);
             this.hideTowerInfo();
-            this.startWaveButton.setVisible(true);
         }
     }
 }
