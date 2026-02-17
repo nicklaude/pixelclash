@@ -1,28 +1,35 @@
-// ---- Game Types ----
+// ---- 2D Particle Tower Defense Types (Phaser Edition) ----
 
-export interface Vec3 {
+export interface Vec2 {
     x: number;
     y: number;
-    z: number;
 }
 
-export type TowerType = 'shooter' | 'zapper' | 'slower' | 'cannon';
-export type EnemyType = 'grunt' | 'tank' | 'fast' | 'shielded';
+export type EmitterType = 'water' | 'fire' | 'electric' | 'goo';
+export type EnemyType = 'grunt' | 'tank' | 'fast' | 'shielded' | 'splitter' | 'boss';
+export type ParticleType = 'water' | 'fire' | 'electric' | 'goo';
 
-export interface TowerDef {
-    type: TowerType;
+export interface EmitterDef {
+    type: EmitterType;
     cost: number;
     range: number;
     damage: number;
-    fireRate: number; // shots per second
+    fireRate: number;           // particles per second
     color: number;
-    height: number;
+    particlesPerShot: number;
+    particleSpeed: number;
+    particlePierce: number;     // how many enemies a particle can hit
+    particleLifespan: number;   // seconds until particle expires
+    spreadAngle: number;        // cone of fire in radians
+    knockbackForce: number;     // force applied to enemies on hit
     description: string;
     // Special properties
-    aoe?: number;         // area of effect radius (cannon)
-    chainCount?: number;  // number of chain targets (zapper)
-    slowFactor?: number;  // speed multiplier (slower)
+    dotDamage?: number;         // damage over time (fire)
+    dotDuration?: number;
+    chainCount?: number;        // chain targets (electric)
+    slowFactor?: number;        // speed multiplier (goo)
     slowDuration?: number;
+    puddleDuration?: number;    // goo puddles on ground
 }
 
 export interface EnemyDef {
@@ -32,64 +39,74 @@ export interface EnemyDef {
     reward: number;
     color: number;
     size: number;
-    // Resistances: 0 = normal, positive = resistant, negative = weak
-    resistances: {
-        bullet: number;
-        electric: number;
-        slow: number;
-        explosive: number;
-    };
+    mass: number;               // affects knockback resistance (inverse)
+    friction: number;           // how fast knockback decays (0-1, higher = slower decay)
+    splitCount?: number;        // for splitter enemies
+    spawnMinions?: boolean;     // for boss enemies
 }
 
-export interface Tower {
+export interface EmitterData {
     id: number;
-    type: TowerType;
+    type: EmitterType;
     gridX: number;
-    gridZ: number;
+    gridY: number;
     level: number;
     cooldown: number;
-    mesh: any; // THREE.Mesh
-    rangeMesh?: any;
+    angle: number;              // current aim direction
     targetId: number | null;
 }
 
-export interface Enemy {
+export interface EnemyData {
     id: number;
     type: EnemyType;
     health: number;
     maxHealth: number;
-    speed: number;
-    pathIndex: number;      // current path segment index
-    pathProgress: number;   // 0-1 along current segment
-    position: Vec3;
+    baseSpeed: number;
+    mass: number;
+    friction: number;
+    pathIndex: number;
+    pathProgress: number;
     slowTimer: number;
     slowFactor: number;
-    mesh: any; // THREE.Mesh
-    healthBar?: any;
-    alive: boolean;
+    dotTimer: number;           // damage over time remaining
+    dotDamage: number;          // damage per tick
     reward: number;
+    flashTimer: number;         // flash on hit
 }
 
-export interface Projectile {
+export interface ParticleData {
     id: number;
-    position: Vec3;
-    targetId: number;
     damage: number;
-    speed: number;
-    type: 'bullet' | 'zap' | 'cannonball';
-    aoe?: number;
-    chainCount?: number;
-    mesh: any;
-    alive: boolean;
+    pierce: number;             // hits remaining
+    lifespan: number;           // time remaining
+    type: ParticleType;
+    knockbackForce: number;
+    hitEnemies: Set<number>;    // track which enemies already hit
+    sourceEmitterId: number;
+}
+
+export interface PuddleData {
+    id: number;
+    x: number;
+    y: number;
+    radius: number;
+    duration: number;
+    slowFactor: number;
+    color: number;
 }
 
 export interface WaveDef {
     enemies: Array<{
         type: EnemyType;
         count: number;
-        delay: number; // ms between spawns
+        delay: number;
     }>;
-    reward: number; // bonus gold for completing wave
+    reward: number;
+}
+
+export interface PathNode {
+    x: number;
+    y: number;
 }
 
 export interface GameState {
@@ -97,18 +114,10 @@ export interface GameState {
     health: number;
     wave: number;
     waveActive: boolean;
-    towers: Tower[];
-    enemies: Enemy[];
-    projectiles: Projectile[];
-    selectedTowerType: TowerType | null;
-    selectedTower: Tower | null;
+    selectedEmitterType: EmitterType | null;
+    selectedEmitterId: number | null;
     nextId: number;
     spawnQueue: Array<{ type: EnemyType; spawnAt: number }>;
     gameOver: boolean;
     paused: boolean;
-}
-
-export interface PathNode {
-    x: number;
-    z: number;
 }

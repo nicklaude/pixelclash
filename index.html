@@ -3,59 +3,82 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>PixelClash - Voxel Tower Defense</title>
+    <title>PixelClash - Particle Tower Defense</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>">
-    <link rel="stylesheet" href="css/style.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            overflow: hidden;
+            background: #111;
+            font-family: 'Courier New', monospace;
+            color: #fff;
+            user-select: none;
+        }
+
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #game-container canvas {
+            display: block;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: #4488ff;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 120px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #instructions strong {
+            color: #4488ff;
+        }
+    </style>
 </head>
 <body>
-    <div id="app">
-        <canvas id="game-canvas"></canvas>
-        <div id="hud">
-            <div id="hud-top">
-                <div id="wave-info">Wave: <span id="wave-num">0</span></div>
-                <div id="health-info">❤️ <span id="health">20</span></div>
-                <div id="gold-info">💰 <span id="gold">100</span></div>
-            </div>
-            <div id="hud-bottom">
-                <div id="tower-panel">
-                    <div class="tower-btn" data-tower="shooter" title="Shooter Tower - $25&#10;Fast single-target damage">
-                        <div class="tower-icon shooter-icon"></div>
-                        <span class="tower-cost">$25</span>
-                    </div>
-                    <div class="tower-btn" data-tower="zapper" title="Zapper Tower - $40&#10;Chain lightning, hits multiple">
-                        <div class="tower-icon zapper-icon"></div>
-                        <span class="tower-cost">$40</span>
-                    </div>
-                    <div class="tower-btn" data-tower="slower" title="Slower Tower - $30&#10;Slows enemies in range">
-                        <div class="tower-icon slower-icon"></div>
-                        <span class="tower-cost">$30</span>
-                    </div>
-                    <div class="tower-btn" data-tower="cannon" title="Cannon Tower - $50&#10;Area damage, slow fire rate">
-                        <div class="tower-icon cannon-icon"></div>
-                        <span class="tower-cost">$50</span>
-                    </div>
-                </div>
-                <div id="controls">
-                    <button id="start-wave">Start Wave</button>
-                    <button id="upgrade-btn" style="display:none">Upgrade ($<span id="upgrade-cost">0</span>)</button>
-                    <button id="sell-btn" style="display:none">Sell ($<span id="sell-value">0</span>)</button>
-                </div>
-            </div>
-            <div id="tower-info" style="display:none">
-                <span id="tower-info-name"></span>
-                <span id="tower-info-level"></span>
-                <span id="tower-info-stats"></span>
-            </div>
-        </div>
-        <div id="game-over" style="display:none">
-            <h1>Game Over!</h1>
-            <p>You survived <span id="final-wave">0</span> waves</p>
-            <button id="restart-btn">Play Again</button>
-        </div>
+    <div id="game-container">
+        <div id="loading">Loading...</div>
     </div>
-    <!-- Three.js from CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Game bundle -->
+    <div id="instructions">
+        <strong>[1-4]</strong> Select tower type |
+        <strong>[Click]</strong> Place tower / Select |
+        <strong>[Space]</strong> Start wave |
+        <strong>[Esc]</strong> Deselect
+    </div>
     <script src="dist/bundle.js"></script>
+    <script>
+        // Hide loading when game starts
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const loading = document.getElementById('loading');
+                if (loading) loading.style.display = 'none';
+            }, 500);
+        });
+    </script>
 </body>
 </html>
