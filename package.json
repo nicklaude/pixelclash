@@ -1,0 +1,26 @@
+{
+  "name": "pixelclash",
+  "version": "1.0.0",
+  "description": "PixelClash - 3D Voxel Tower Defense Game",
+  "main": "dist/bundle.js",
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit && echo 'Types OK!'"
+  },
+  "keywords": [
+    "tower-defense",
+    "voxel",
+    "three.js",
+    "game"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/three": "^0.182.0",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3"
+  }
+}
