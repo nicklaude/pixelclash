@@ -15,7 +15,7 @@ export const NEXUS_X = Math.floor(GRID_SIZE / 2);
 export const NEXUS_Y = Math.floor(GRID_SIZE / 2);
 
 // Auto-wave timing
-export const AUTO_WAVE_DELAY = 3000;  // ms between waves
+export const AUTO_WAVE_DELAY = 2000;  // ms between waves (faster!)
 
 // Path: enemies enter from corner, spiral to nexus (adjusted for 16x16 grid)
 export const PATH: PathNode[] = [
@@ -125,68 +125,68 @@ export const EMITTER_DEFS: Record<string, EmitterDef> = {
     },
 };
 
-// Enemy definitions - speeds increased for faster gameplay
+// Enemy definitions - faster gameplay!
 export const ENEMY_DEFS: Record<string, EnemyDef> = {
     grunt: {
         type: 'grunt',
-        health: 30,
-        speed: 100,             // pixels per second (was 60)
+        health: 25,
+        speed: 130,             // faster!
         reward: 5,
         color: 0xcc4444,
         size: 10,
         mass: 1,
-        friction: 0.88,         // decay knockback faster
+        friction: 0.85,
     },
     fast: {
         type: 'fast',
-        health: 15,
-        speed: 180,             // (was 120)
+        health: 12,
+        speed: 220,             // zippy!
         reward: 7,
         color: 0xcccc44,
         size: 7,
-        mass: 0.5,              // gets pushed around easily
-        friction: 0.82,         // knockback decays faster
+        mass: 0.5,
+        friction: 0.80,
     },
     tank: {
         type: 'tank',
-        health: 100,
-        speed: 55,              // (was 35)
+        health: 80,
+        speed: 70,
         reward: 15,
         color: 0x6644aa,
         size: 14,
-        mass: 4,                // very resistant to knockback
-        friction: 0.92,
+        mass: 4,
+        friction: 0.90,
     },
     shielded: {
         type: 'shielded',
-        health: 50,
-        speed: 80,              // (was 50)
+        health: 40,
+        speed: 100,
         reward: 10,
         color: 0x44aa66,
         size: 11,
         mass: 1.5,
-        friction: 0.90,
+        friction: 0.88,
     },
     splitter: {
         type: 'splitter',
-        health: 40,
-        speed: 90,              // (was 55)
+        health: 35,
+        speed: 110,
         reward: 12,
         color: 0xff88ff,
         size: 11,
         mass: 1,
-        friction: 0.86,
-        splitCount: 2,          // splits into 2 smaller enemies on death
+        friction: 0.84,
+        splitCount: 2,
     },
     boss: {
         type: 'boss',
-        health: 400,
-        speed: 40,              // (was 25)
+        health: 300,
+        speed: 50,
         reward: 100,
         color: 0x882222,
-        size: 22,
-        mass: 10,               // barely moves from knockback
-        friction: 0.95,
+        size: 20,
+        mass: 10,
+        friction: 0.93,
         spawnMinions: true,
     },
 };
@@ -245,7 +245,7 @@ export function getUpgradeMultiplier(level: number): { damage: number; range: nu
     };
 }
 
-export const STARTING_GOLD = 120;
+export const STARTING_GOLD = 200;  // More starting money
 export const STARTING_HEALTH = 20;
 
 // Particle physics constants

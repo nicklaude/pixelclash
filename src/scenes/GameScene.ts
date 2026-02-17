@@ -42,6 +42,15 @@ export class GameScene extends Phaser.Scene {
     // Chain lightning effects
     chainEffects: Array<{ from: Vec2; to: Vec2; timer: number }> = [];
 
+    // Death explosion particles
+    deathParticles: Array<{
+        x: number; y: number;
+        vx: number; vy: number;
+        color: number;
+        size: number;
+        life: number;
+    }> = [];
+
     // Nexus animation
     nexusPulse: number = 0;
 
@@ -148,10 +157,14 @@ export class GameScene extends Phaser.Scene {
         this.updatePuddles(dt);
         this.updateChainEffects(dt);
 
+        // Update death particles
+        this.updateDeathParticles(dt);
+
         // Draw dynamic elements
         this.drawNexus();
         this.drawEnemies();
         this.drawChainEffects();
+        this.drawDeathParticles();
         this.drawHoverCell();
 
         // Check wave completion
@@ -259,6 +272,9 @@ export class GameScene extends Phaser.Scene {
 
             const def = ENEMY_DEFS[enemy.data_.type];
             const body = enemy.body as Phaser.Physics.Arcade.Body;
+            const x = enemy.x;
+            const y = enemy.y;
+            const s = def.size;
 
             // Flash effect
             let color = def.color;
@@ -266,41 +282,147 @@ export class GameScene extends Phaser.Scene {
                 color = 0xffffff;
             }
 
-            // DOT fire effect
+            // Darker shade for outlines
+            const dark = this.darkenColor(color, 0.5);
+
+            // DOT fire effect - pixel flames
             if (enemy.data_.dotTimer > 0) {
-                for (let i = 0; i < 3; i++) {
+                for (let i = 0; i < 4; i++) {
                     const angle = Math.random() * Math.PI * 2;
-                    const dist = def.size * 0.5 + Math.random() * 5;
-                    const fx = enemy.x + Math.cos(angle) * dist;
-                    const fy = enemy.y + Math.sin(angle) * dist;
-                    g.fillStyle(0xff6600, 0.7);
-                    g.fillCircle(fx, fy, 2 + Math.random() * 2);
+                    const dist = s * 0.6 + Math.random() * 4;
+                    const fx = x + Math.cos(angle) * dist;
+                    const fy = y + Math.sin(angle) * dist;
+                    // Pixel fire
+                    g.fillStyle(0xff6600, 0.9);
+                    g.fillRect(fx - 2, fy - 3, 4, 6);
+                    g.fillStyle(0xffaa00, 0.8);
+                    g.fillRect(fx - 1, fy - 5, 2, 4);
                 }
             }
 
-            // Squash and stretch based on knockback
-            const speed = Math.sqrt(body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y);
-            const stretch = 1 + Math.min(speed / 200, 0.4);
+            // Draw pixelated enemy based on type
+            const type = enemy.data_.type;
 
-            // Draw enemy body
-            g.fillStyle(color, 1);
-            if (stretch > 1.1) {
-                // Stretched ellipse in direction of movement
-                const angle = Math.atan2(body.velocity.y, body.velocity.x);
-                g.save();
-                g.translateCanvas(enemy.x, enemy.y);
-                g.rotateCanvas(angle);
-                g.scaleCanvas(stretch, 1 / stretch);
-                g.fillCircle(0, 0, def.size);
-                g.restore();
+            if (type === 'grunt') {
+                // Angry square with spikes
+                g.fillStyle(color, 1);
+                g.fillRect(x - s, y - s, s * 2, s * 2);
+                // Corner spikes
+                g.fillStyle(dark, 1);
+                g.fillRect(x - s - 3, y - s - 3, 4, 4);
+                g.fillRect(x + s - 1, y - s - 3, 4, 4);
+                g.fillRect(x - s - 3, y + s - 1, 4, 4);
+                g.fillRect(x + s - 1, y + s - 1, 4, 4);
+                // Angry eyes
+                g.fillStyle(0x000000, 1);
+                g.fillRect(x - s * 0.5, y - s * 0.3, 3, 4);
+                g.fillRect(x + s * 0.2, y - s * 0.3, 3, 4);
+                // Angry mouth
+                g.fillRect(x - s * 0.4, y + s * 0.3, s * 0.8, 2);
+            } else if (type === 'fast') {
+                // Diamond/arrow shape
+                g.fillStyle(color, 1);
+                g.beginPath();
+                g.moveTo(x, y - s);
+                g.lineTo(x + s, y);
+                g.lineTo(x, y + s * 0.7);
+                g.lineTo(x - s, y);
+                g.closePath();
+                g.fillPath();
+                // Speed lines
+                g.fillStyle(dark, 0.6);
+                g.fillRect(x - s - 6, y - 1, 4, 2);
+                g.fillRect(x - s - 10, y + 3, 3, 2);
+                // Eye
+                g.fillStyle(0x000000, 1);
+                g.fillRect(x - 2, y - s * 0.3, 4, 3);
+            } else if (type === 'tank') {
+                // Big chunky square with armor plates
+                g.fillStyle(dark, 1);
+                g.fillRect(x - s - 2, y - s - 2, s * 2 + 4, s * 2 + 4);
+                g.fillStyle(color, 1);
+                g.fillRect(x - s, y - s, s * 2, s * 2);
+                // Armor plates
+                g.fillStyle(this.lightenColor(color, 0.3), 1);
+                g.fillRect(x - s + 2, y - s + 2, s - 2, s - 2);
+                // Visor
+                g.fillStyle(0x222222, 1);
+                g.fillRect(x - s * 0.6, y - s * 0.2, s * 1.2, 4);
+                g.fillStyle(0x44ffff, 0.8);
+                g.fillRect(x - s * 0.5, y - s * 0.1, s, 2);
+            } else if (type === 'shielded') {
+                // Hexagon-ish shape
+                g.fillStyle(color, 1);
+                g.beginPath();
+                g.moveTo(x - s * 0.5, y - s);
+                g.lineTo(x + s * 0.5, y - s);
+                g.lineTo(x + s, y);
+                g.lineTo(x + s * 0.5, y + s);
+                g.lineTo(x - s * 0.5, y + s);
+                g.lineTo(x - s, y);
+                g.closePath();
+                g.fillPath();
+                // Shield shimmer
+                g.fillStyle(0xffffff, 0.3);
+                g.fillRect(x - s * 0.3, y - s * 0.8, 3, s * 0.6);
+                // Eyes
+                g.fillStyle(0x000000, 1);
+                g.fillRect(x - 4, y - 2, 3, 3);
+                g.fillRect(x + 1, y - 2, 3, 3);
+            } else if (type === 'splitter') {
+                // Two connected blobs
+                g.fillStyle(color, 1);
+                g.fillRect(x - s, y - s * 0.7, s * 0.9, s * 1.4);
+                g.fillRect(x + s * 0.1, y - s * 0.7, s * 0.9, s * 1.4);
+                // Connection
+                g.fillStyle(dark, 1);
+                g.fillRect(x - 2, y - s * 0.3, 4, s * 0.6);
+                // Four eyes
+                g.fillStyle(0x000000, 1);
+                g.fillRect(x - s * 0.7, y - s * 0.2, 2, 2);
+                g.fillRect(x - s * 0.4, y - s * 0.2, 2, 2);
+                g.fillRect(x + s * 0.3, y - s * 0.2, 2, 2);
+                g.fillRect(x + s * 0.6, y - s * 0.2, 2, 2);
+            } else if (type === 'boss') {
+                // Big scary boss - skull-like
+                g.fillStyle(dark, 1);
+                g.fillRect(x - s - 3, y - s - 3, s * 2 + 6, s * 2 + 6);
+                g.fillStyle(color, 1);
+                g.fillRect(x - s, y - s, s * 2, s * 2);
+                // Skull features
+                g.fillStyle(0x000000, 1);
+                // Eye sockets
+                g.fillRect(x - s * 0.6, y - s * 0.5, s * 0.5, s * 0.6);
+                g.fillRect(x + s * 0.1, y - s * 0.5, s * 0.5, s * 0.6);
+                // Glowing eyes
+                g.fillStyle(0xff0000, 1);
+                g.fillRect(x - s * 0.5, y - s * 0.3, s * 0.3, s * 0.3);
+                g.fillRect(x + s * 0.2, y - s * 0.3, s * 0.3, s * 0.3);
+                // Teeth
+                g.fillStyle(0xffffff, 1);
+                for (let i = 0; i < 4; i++) {
+                    g.fillRect(x - s * 0.6 + i * s * 0.35, y + s * 0.3, s * 0.25, s * 0.4);
+                }
             } else {
-                g.fillCircle(enemy.x, enemy.y, def.size);
+                // Fallback - simple square
+                g.fillStyle(color, 1);
+                g.fillRect(x - s, y - s, s * 2, s * 2);
             }
-
-            // Eye indicator
-            g.fillStyle(0x000000, 1);
-            g.fillCircle(enemy.x + def.size * 0.3, enemy.y - def.size * 0.2, def.size * 0.2);
         });
+    }
+
+    darkenColor(color: number, factor: number): number {
+        const r = Math.floor(((color >> 16) & 255) * factor);
+        const g = Math.floor(((color >> 8) & 255) * factor);
+        const b = Math.floor((color & 255) * factor);
+        return (r << 16) | (g << 8) | b;
+    }
+
+    lightenColor(color: number, factor: number): number {
+        const r = Math.min(255, Math.floor(((color >> 16) & 255) * (1 + factor)));
+        const g = Math.min(255, Math.floor(((color >> 8) & 255) * (1 + factor)));
+        const b = Math.min(255, Math.floor((color & 255) * (1 + factor)));
+        return (r << 16) | (g << 8) | b;
     }
 
     drawChainEffects() {
@@ -390,13 +512,18 @@ export class GameScene extends Phaser.Scene {
                     // Damage player
                     this.state.health -= 1;
                     this.events.emit('healthChanged', this.state.health);
+                    // Screen shake on damage!
+                    this.cameras.main.shake(200, 0.01);
                 } else if (enemy.data_.health <= 0) {
                     // Killed - give reward
                     this.state.gold += enemy.data_.reward;
                     this.events.emit('goldChanged', this.state.gold);
 
-                    // Handle splitter
+                    // DEATH EXPLOSION!
                     const def = ENEMY_DEFS[enemy.data_.type];
+                    this.spawnDeathExplosion(enemy.x, enemy.y, def.color, def.size);
+
+                    // Handle splitter
                     if (def.splitCount && def.splitCount > 0) {
                         for (let i = 0; i < def.splitCount; i++) {
                             const angle = (Math.PI * 2 / def.splitCount) * i;
@@ -408,6 +535,11 @@ export class GameScene extends Phaser.Scene {
                                 0.5
                             );
                         }
+                    }
+
+                    // Boss death = big shake
+                    if (enemy.data_.type === 'boss') {
+                        this.cameras.main.shake(400, 0.02);
                     }
                 }
                 toRemove.push(enemy);
@@ -452,9 +584,40 @@ export class GameScene extends Phaser.Scene {
 
             if (!bestTarget) return;
 
-            // Aim and fire
+            // Aim with LEAD TARGETING - predict where enemy will be
             const target: Enemy = bestTarget;
-            emitter.aimAt(target.x, target.y);
+            const projectileSpeed = def.particleSpeed;
+
+            // Calculate time for projectile to reach current enemy position
+            const dx = target.x - emitterPos.x;
+            const dy = target.y - emitterPos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const timeToHit = dist / projectileSpeed;
+
+            // Get enemy's current velocity/direction
+            const enemyDef = ENEMY_DEFS[target.data_.type];
+            const pathIdx = target.data_.pathIndex;
+            const nextWaypoint = target.worldPath[pathIdx + 1];
+
+            let predictX = target.x;
+            let predictY = target.y;
+
+            if (nextWaypoint) {
+                // Predict based on enemy speed toward next waypoint
+                const toDx = nextWaypoint.x - target.x;
+                const toDy = nextWaypoint.y - target.y;
+                const toDist = Math.sqrt(toDx * toDx + toDy * toDy);
+                if (toDist > 0) {
+                    const moveSpeed = target.data_.baseSpeed * (target.data_.slowTimer > 0 ? target.data_.slowFactor : 1);
+                    const nx = toDx / toDist;
+                    const ny = toDy / toDist;
+                    // Lead by predicted travel distance
+                    predictX = target.x + nx * moveSpeed * timeToHit * 0.8; // 0.8 = tuning factor
+                    predictY = target.y + ny * moveSpeed * timeToHit * 0.8;
+                }
+            }
+
+            emitter.aimAt(predictX, predictY);
             emitter.fire();
 
             // Spawn projectiles
@@ -572,6 +735,44 @@ export class GameScene extends Phaser.Scene {
             e.timer -= dt;
             return e.timer > 0;
         });
+    }
+
+    updateDeathParticles(dt: number) {
+        this.deathParticles = this.deathParticles.filter(p => {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 200 * dt; // gravity
+            p.life -= dt;
+            p.size *= 0.98; // shrink
+            return p.life > 0 && p.size > 0.5;
+        });
+    }
+
+    drawDeathParticles() {
+        const g = this.enemyGraphics; // reuse graphics
+        for (const p of this.deathParticles) {
+            const alpha = Math.min(1, p.life * 2);
+            g.fillStyle(p.color, alpha);
+            // Pixel-style squares
+            g.fillRect(p.x - p.size/2, p.y - p.size/2, p.size, p.size);
+        }
+    }
+
+    spawnDeathExplosion(x: number, y: number, color: number, size: number) {
+        const count = Math.floor(8 + size * 0.5);
+        for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
+            const speed = 80 + Math.random() * 120;
+            this.deathParticles.push({
+                x: x + (Math.random() - 0.5) * size,
+                y: y + (Math.random() - 0.5) * size,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed - 50, // upward bias
+                color: Math.random() > 0.3 ? color : this.lightenColor(color, 0.5),
+                size: 3 + Math.random() * 4,
+                life: 0.5 + Math.random() * 0.5,
+            });
+        }
     }
 
     checkWaveCompletion() {
