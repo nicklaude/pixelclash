@@ -95,6 +95,9 @@ export class UIScene extends Phaser.Scene {
         // Background
         const bg = this.add.rectangle(width / 2, bottomY, width, UI_BOTTOM_HEIGHT, 0x111122, 0.95);
 
+        // Make background interactive for scroll wheel
+        bg.setInteractive();
+
         // Tower buttons
         const towers: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
         const buttonWidth = 55;
@@ -135,6 +138,16 @@ export class UIScene extends Phaser.Scene {
             () => this.onSellClick()
         );
         this.sellButton.setVisible(false);
+
+        // Add scroll wheel listener for tower cycling in bottom HUD
+        this.input.on('wheel', (pointer: Phaser.Input.Pointer, gameObjects: any[], deltaX: number, deltaY: number) => {
+            // Only handle scroll in bottom HUD area
+            if (pointer.y >= height - UI_BOTTOM_HEIGHT) {
+                // deltaY > 0 means scroll down, < 0 means scroll up
+                const direction = deltaY > 0 ? 1 : -1;
+                this.gameScene.cycleTowerSelection(direction);
+            }
+        });
     }
 
     createTowerButton(x: number, y: number, type: EmitterType): Phaser.GameObjects.Container {

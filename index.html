@@ -63,15 +63,41 @@
             padding: 0.1rem 0.4rem;
             margin: 0 0.1rem;
         }
+
+        #stats-bar {
+            display: flex;
+            justify-content: center;
+            gap: 1.5rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+            font-family: 'Courier New', monospace;
+            color: var(--pico-muted-color);
+        }
+
+        #stats-bar span {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        #stats-bar .stat-value {
+            color: var(--pico-primary);
+            min-width: 2.5rem;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
     <h1>🏰 PixelClash</h1>
+    <div id="stats-bar">
+        <span>FPS: <span id="fps-display" class="stat-value">--</span></span>
+        <span>Entities: <span id="entity-display" class="stat-value">--</span></span>
+    </div>
     <div id="game-container">
         <div id="loading">Loading...</div>
     </div>
     <div id="instructions">
-        <kbd>1-4</kbd> Select tower |
+        <kbd>1-4</kbd> or <kbd>←</kbd><kbd>→</kbd> Select tower |
         <kbd>Click</kbd> Place / Select |
         <kbd>P</kbd> Pause |
         <kbd>Esc</kbd> Deselect
@@ -85,6 +111,47 @@
                 if (loading) loading.style.display = 'none';
             }, 500);
         });
+
+        // FPS and entity counter
+        (function() {
+            const fpsDisplay = document.getElementById('fps-display');
+            const entityDisplay = document.getElementById('entity-display');
+
+            let frameCount = 0;
+            let lastTime = performance.now();
+            let fps = 0;
+
+            function updateStats() {
+                frameCount++;
+                const now = performance.now();
+
+                // Update FPS every 500ms
+                if (now - lastTime >= 500) {
+                    fps = Math.round(frameCount * 1000 / (now - lastTime));
+                    frameCount = 0;
+                    lastTime = now;
+                    fpsDisplay.textContent = fps;
+                }
+
+                // Get entity count from Phaser game
+                let entityCount = 0;
+                if (window.Phaser && window.Phaser.GAMES && window.Phaser.GAMES.length > 0) {
+                    const game = window.Phaser.GAMES[0];
+                    const gameScene = game.scene.getScene('GameScene');
+                    if (gameScene) {
+                        const enemies = gameScene.enemies ? gameScene.enemies.getLength() : 0;
+                        const projectiles = gameScene.projectiles ? gameScene.projectiles.getLength() : 0;
+                        entityCount = enemies + projectiles;
+                    }
+                }
+                entityDisplay.textContent = entityCount;
+
+                requestAnimationFrame(updateStats);
+            }
+
+            // Start after game loads
+            setTimeout(updateStats, 1000);
+        })();
     </script>
 </body>
 </html>

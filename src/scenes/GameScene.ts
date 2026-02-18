@@ -1048,11 +1048,22 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
+    // Tower type order for cycling
+    static readonly TOWER_ORDER: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
+
     onKeyDown(event: KeyboardEvent) {
         if (event.key === '1') this.setSelectedEmitterType('water');
         if (event.key === '2') this.setSelectedEmitterType('fire');
         if (event.key === '3') this.setSelectedEmitterType('electric');
         if (event.key === '4') this.setSelectedEmitterType('goo');
+        if (event.key === 'ArrowLeft') {
+            event.preventDefault();
+            this.cycleTowerSelection(-1);
+        }
+        if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            this.cycleTowerSelection(1);
+        }
         if (event.key === 'Escape') {
             this.state.selectedEmitterType = null;
             this.selectEmitter(null);
@@ -1068,6 +1079,33 @@ export class GameScene extends Phaser.Scene {
         if (event.key === 'p' || event.key === 'P') {
             this.togglePause();
         }
+    }
+
+    cycleTowerSelection(direction: number) {
+        const towers = GameScene.TOWER_ORDER;
+        const currentType = this.state.selectedEmitterType;
+
+        // Find current index (-1 if nothing selected)
+        let currentIndex = currentType ? towers.indexOf(currentType) : -1;
+
+        // Try to find an affordable tower in the given direction
+        for (let i = 0; i < towers.length; i++) {
+            currentIndex = (currentIndex + direction + towers.length) % towers.length;
+            const nextType = towers[currentIndex];
+            const def = EMITTER_DEFS[nextType];
+
+            if (this.state.gold >= def.cost) {
+                this.state.selectedEmitterType = nextType;
+                this.selectEmitter(null);
+                this.events.emit('emitterDeselected');
+                this.events.emit('emitterTypeChanged', nextType);
+                return;
+            }
+        }
+
+        // No affordable tower found - deselect
+        this.state.selectedEmitterType = null;
+        this.events.emit('emitterTypeChanged', null);
     }
 
     togglePause() {
