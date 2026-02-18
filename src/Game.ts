@@ -50,7 +50,11 @@ export class Game {
     waveText!: Text;
     pauseText!: Text;
     towerButtons: Container[] = [];
+    deleteButton: Container | null = null;
     selectedPanel: Container | null = null;
+
+    // Delete mode
+    deleteMode: boolean = false;
 
     // Hover/Selection
     hoverCell: { x: number; y: number } | null = null;
@@ -76,11 +80,6 @@ export class Game {
 
     // Game container (for shake offset)
     gameContainer: Container;
-
-    // Background effects
-    backgroundStars: Array<{ x: number; y: number; size: number; twinkle: number; speed: number }> = [];
-    backgroundGraphics: Graphics;
-    ambientTime: number = 0;
 
     constructor(app: Application) {
         this.app = app;
@@ -126,16 +125,9 @@ export class Game {
         );
         app.stage.addChild(this.uiLayer);
 
-        // Create background graphics (below grid)
-        this.backgroundGraphics = new Graphics();
-        this.gridLayer.addChild(this.backgroundGraphics);
-
         // Create graphics objects
         this.gridGraphics = new Graphics();
         this.gridLayer.addChild(this.gridGraphics);
-
-        // Initialize background stars
-        this.initBackgroundEffects();
 
         this.nexusGraphics = new Graphics();
         this.gridLayer.addChild(this.nexusGraphics);
@@ -154,74 +146,6 @@ export class Game {
 
         // Set up input
         this.setupInput();
-    }
-
-    // ========== Background Effects ==========
-
-    initBackgroundEffects() {
-        // Create floating particles/stars for ambient effect
-        for (let i = 0; i < 60; i++) {
-            this.backgroundStars.push({
-                x: Math.random() * GAME_WIDTH,
-                y: Math.random() * GAME_HEIGHT + UI_TOP_HEIGHT,
-                size: 1 + Math.random() * 2,
-                twinkle: Math.random() * Math.PI * 2,
-                speed: 0.5 + Math.random() * 1.5,
-            });
-        }
-    }
-
-    drawBackground() {
-        const g = this.backgroundGraphics;
-        g.clear();
-
-        this.ambientTime += 0.02;
-
-        // Draw twinkling stars/motes
-        for (const star of this.backgroundStars) {
-            star.twinkle += star.speed * 0.05;
-            const alpha = 0.2 + Math.sin(star.twinkle) * 0.3;
-            const pulse = 1 + Math.sin(star.twinkle * 2) * 0.3;
-
-            // Soft glow
-            g.circle(star.x, star.y, star.size * pulse * 1.5)
-                .fill({ color: 0x4488ff, alpha: alpha * 0.3 });
-            g.circle(star.x, star.y, star.size * pulse)
-                .fill({ color: 0xaaccff, alpha: alpha });
-        }
-
-        // Animated path glow - energy flowing along the path
-        const glowPoints = 8;
-        for (let i = 0; i < glowPoints; i++) {
-            const progress = ((this.ambientTime * 0.3 + i / glowPoints) % 1);
-            const pathIndex = Math.floor(progress * (this.worldPath.length - 1));
-            const nextIndex = Math.min(pathIndex + 1, this.worldPath.length - 1);
-            const t = (progress * (this.worldPath.length - 1)) % 1;
-
-            const x = this.worldPath[pathIndex].x + (this.worldPath[nextIndex].x - this.worldPath[pathIndex].x) * t;
-            const y = this.worldPath[pathIndex].y + (this.worldPath[nextIndex].y - this.worldPath[pathIndex].y) * t;
-
-            const fadeIn = Math.min(1, progress * 5);
-            const fadeOut = 1 - Math.max(0, (progress - 0.8) * 5);
-            const alpha = fadeIn * fadeOut * 0.4;
-
-            g.circle(x, y, 8 + Math.sin(this.ambientTime * 3 + i) * 2)
-                .fill({ color: 0xff6644, alpha: alpha * 0.3 });
-            g.circle(x, y, 4)
-                .fill({ color: 0xffaa88, alpha: alpha });
-        }
-
-        // Corner vignette effect (dark edges)
-        const vignetteGrad = [
-            { x: 0, y: UI_TOP_HEIGHT, alpha: 0.3 },
-            { x: GAME_WIDTH, y: UI_TOP_HEIGHT, alpha: 0.3 },
-            { x: 0, y: GAME_HEIGHT + UI_TOP_HEIGHT, alpha: 0.3 },
-            { x: GAME_WIDTH, y: GAME_HEIGHT + UI_TOP_HEIGHT, alpha: 0.3 },
-        ];
-        for (const v of vignetteGrad) {
-            g.circle(v.x, v.y, CELL_SIZE * 3)
-                .fill({ color: 0x000011, alpha: v.alpha });
-        }
     }
 
     // ========== Grid Helpers ==========
@@ -254,25 +178,6 @@ export class Game {
         const g = this.gridGraphics;
         g.clear();
 
-        // Deep space background gradient
-        for (let y = 0; y < GRID_SIZE; y++) {
-            const gradientAlpha = 0.1 + (y / GRID_SIZE) * 0.15;
-            g.rect(0, y * CELL_SIZE + UI_TOP_HEIGHT, GAME_WIDTH, CELL_SIZE)
-                .fill({ color: 0x0a0a1e, alpha: gradientAlpha });
-        }
-
-        // Draw path glow first (underneath tiles)
-        for (let x = 0; x < GRID_SIZE; x++) {
-            for (let y = 0; y < GRID_SIZE; y++) {
-                const key = `${x},${y}`;
-                if (this.pathCells.has(key)) {
-                    // Soft underglow for path
-                    g.rect(x * CELL_SIZE - 2, y * CELL_SIZE - 2 + UI_TOP_HEIGHT, CELL_SIZE + 4, CELL_SIZE + 4)
-                        .fill({ color: 0xff4422, alpha: 0.1 });
-                }
-            }
-        }
-
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let y = 0; y < GRID_SIZE; y++) {
                 const key = `${x},${y}`;
@@ -281,79 +186,16 @@ export class Game {
 
                 if (isNexus) continue;
 
-                const px = x * CELL_SIZE;
-                const py = y * CELL_SIZE + UI_TOP_HEIGHT;
-
+                let color: number;
                 if (isPath) {
-                    // Lava/molten path - dangerous looking
-                    const baseColor = 0x2a1a0a;
-                    g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2)
-                        .fill(baseColor);
-
-                    // Cracks with lava glow
-                    const crackSeed = (x * 17 + y * 31) % 7;
-                    g.moveTo(px + 4, py + 4);
-                    g.lineTo(px + CELL_SIZE / 2 + crackSeed, py + CELL_SIZE / 2);
-                    g.lineTo(px + CELL_SIZE - 4, py + CELL_SIZE - 6);
-                    g.stroke({ color: 0xff6633, alpha: 0.6, width: 2 });
-
-                    // Additional crack
-                    if (crackSeed > 3) {
-                        g.moveTo(px + CELL_SIZE - 6, py + 5);
-                        g.lineTo(px + CELL_SIZE / 2, py + CELL_SIZE - 5);
-                        g.stroke({ color: 0xff4422, alpha: 0.4, width: 1 });
-                    }
-
-                    // Hot spots
-                    g.circle(px + 8 + (crackSeed * 2), py + 12 + crackSeed, 3)
-                        .fill({ color: 0xff8844, alpha: 0.5 });
-
-                    // Edge highlight
-                    g.rect(px + 1, py + 1, CELL_SIZE - 2, 2)
-                        .fill({ color: 0x442211, alpha: 0.6 });
+                    color = 0x3d3328;
                 } else {
-                    // Crystal/alien terrain
-                    const shade = ((x + y) % 2 === 0) ? 0x1a2a3a : 0x152535;
-                    g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2)
-                        .fill(shade);
-
-                    // Crystal formations
-                    const crystalSeed = (x * 11 + y * 23) % 9;
-                    if (crystalSeed < 2) {
-                        // Small crystal cluster
-                        const cx = px + 8 + (crystalSeed * 6);
-                        const cy = py + 10 + (crystalSeed * 4);
-                        g.moveTo(cx, cy + 8);
-                        g.lineTo(cx - 3, cy + 3);
-                        g.lineTo(cx, cy - 2);
-                        g.lineTo(cx + 3, cy + 3);
-                        g.closePath();
-                        g.fill({ color: 0x44aacc, alpha: 0.4 });
-                        g.stroke({ color: 0x66ccee, alpha: 0.3, width: 1 });
-                    } else if (crystalSeed === 3) {
-                        // Alien plant
-                        g.circle(px + 20, py + 18, 4)
-                            .fill({ color: 0x33ff88, alpha: 0.2 });
-                        g.circle(px + 20, py + 18, 2)
-                            .fill({ color: 0x88ffaa, alpha: 0.4 });
-                    } else if (crystalSeed === 5) {
-                        // Small rock
-                        g.ellipse(px + 14, py + 20, 6, 4)
-                            .fill({ color: 0x2a3a4a, alpha: 0.7 });
-                    }
-
-                    // Subtle grid texture
-                    g.rect(px + 2, py + CELL_SIZE - 3, CELL_SIZE - 4, 1)
-                        .fill({ color: 0x0a1a2a, alpha: 0.4 });
+                    color = ((x + y) % 2 === 0) ? 0x2a3a2a : 0x253525;
                 }
-            }
-        }
 
-        // Grid lines (subtle cyan glow)
-        g.setStrokeStyle({ color: 0x224466, alpha: 0.15, width: 1 });
-        for (let i = 0; i <= GRID_SIZE; i++) {
-            g.moveTo(i * CELL_SIZE, UI_TOP_HEIGHT).lineTo(i * CELL_SIZE, UI_TOP_HEIGHT + GAME_HEIGHT).stroke();
-            g.moveTo(0, i * CELL_SIZE + UI_TOP_HEIGHT).lineTo(GAME_WIDTH, i * CELL_SIZE + UI_TOP_HEIGHT).stroke();
+                g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
+                    .fill(color);
+            }
         }
     }
 
@@ -364,81 +206,84 @@ export class Game {
         const cx = NEXUS_X * CELL_SIZE + CELL_SIZE / 2;
         const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
 
-        this.nexusPulse += 0.03;
+        this.nexusPulse += 0.05;
         const pulse = 0.7 + Math.sin(this.nexusPulse) * 0.3;
-        const fastPulse = 0.5 + Math.sin(this.nexusPulse * 3) * 0.5;
-
-        // Outer expanding rings
-        for (let i = 0; i < 3; i++) {
-            const ringPulse = (this.nexusPulse * 0.5 + i * 0.33) % 1;
-            const ringRadius = CELL_SIZE * 0.5 + ringPulse * CELL_SIZE * 0.8;
-            const ringAlpha = (1 - ringPulse) * 0.2;
-            g.circle(cx, cy, ringRadius)
-                .stroke({ color: 0x4488ff, alpha: ringAlpha, width: 2 });
-        }
+        const glowRadius = CELL_SIZE * 0.8 * pulse;
 
         // Outer glow
-        g.circle(cx, cy, CELL_SIZE * 0.9 * pulse)
-            .fill({ color: 0x2244aa, alpha: pulse * 0.2 });
+        g.circle(cx, cy, glowRadius)
+            .fill({ color: 0x2244aa, alpha: pulse * 0.3 });
 
-        // Mid glow
-        g.circle(cx, cy, CELL_SIZE * 0.6 * pulse)
-            .fill({ color: 0x3366cc, alpha: pulse * 0.4 });
+        // Core
+        g.circle(cx, cy, CELL_SIZE * 0.4)
+            .fill(0x4488ff);
 
-        // Core crystal shape (hexagon)
-        const coreSize = CELL_SIZE * 0.35;
-        const points: number[] = [];
-        for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
-            points.push(cx + Math.cos(angle) * coreSize);
-            points.push(cy + Math.sin(angle) * coreSize);
-        }
-        g.poly(points).fill(0x4488ff);
-        g.poly(points).stroke({ color: 0x66aaff, width: 2 });
-
-        // Inner core
-        g.circle(cx, cy, CELL_SIZE * 0.15)
-            .fill(0xaaccff);
-
-        // Sparkle effects
-        for (let i = 0; i < 4; i++) {
-            const sparkAngle = this.nexusPulse * 2 + i * Math.PI / 2;
-            const sparkDist = CELL_SIZE * 0.25 + fastPulse * 5;
-            const sx = cx + Math.cos(sparkAngle) * sparkDist;
-            const sy = cy + Math.sin(sparkAngle) * sparkDist;
-            g.circle(sx, sy, 2 + fastPulse * 2)
-                .fill({ color: 0xffffff, alpha: fastPulse * 0.8 });
-        }
-
-        // Health indicator ring
-        const healthPct = this.state.health / STARTING_HEALTH;
-        if (healthPct < 1) {
-            const healthColor = healthPct > 0.5 ? 0x44ff44 : healthPct > 0.25 ? 0xffcc00 : 0xff4444;
-            g.arc(cx, cy, CELL_SIZE * 0.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * healthPct)
-                .stroke({ color: healthColor, width: 3, alpha: 0.8 });
-        }
+        // Inner shine
+        g.circle(cx - 3, cy - 3, CELL_SIZE * 0.15)
+            .fill(0x88bbff);
     }
 
     drawHoverCell() {
         const g = this.hoverGraphics;
         g.clear();
 
-        if (this.hoverCell && this.state.selectedEmitterType) {
-            const valid = this.canPlaceEmitter(this.hoverCell.x, this.hoverCell.y);
+        if (!this.hoverCell) return;
 
-            g.rect(
-                this.hoverCell.x * CELL_SIZE,
-                this.hoverCell.y * CELL_SIZE + UI_TOP_HEIGHT,
-                CELL_SIZE,
-                CELL_SIZE
-            ).fill({ color: valid ? 0x00ff00 : 0xff0000, alpha: 0.3 });
+        const existingEmitter = this.getEmitterAtGrid(this.hoverCell.x, this.hoverCell.y);
 
-            g.rect(
-                this.hoverCell.x * CELL_SIZE + 1,
-                this.hoverCell.y * CELL_SIZE + 1 + UI_TOP_HEIGHT,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2
-            ).stroke({ color: valid ? 0x00ff00 : 0xff0000, width: 2 });
+        if (this.deleteMode) {
+            // Show delete indicator
+            if (existingEmitter) {
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE,
+                    this.hoverCell.y * CELL_SIZE + UI_TOP_HEIGHT,
+                    CELL_SIZE,
+                    CELL_SIZE
+                ).fill({ color: 0xff0000, alpha: 0.4 });
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE + 1,
+                    this.hoverCell.y * CELL_SIZE + 1 + UI_TOP_HEIGHT,
+                    CELL_SIZE - 2,
+                    CELL_SIZE - 2
+                ).stroke({ color: 0xff0000, width: 3 });
+            }
+        } else if (this.state.selectedEmitterType) {
+            if (existingEmitter && existingEmitter.data_.type === this.state.selectedEmitterType) {
+                // Show upgrade indicator (yellow)
+                const upgradeCost = getUpgradeCost(existingEmitter.data_.level);
+                const canAfford = this.state.gold >= upgradeCost;
+                const color = canAfford ? 0xffcc00 : 0xff6600;
+
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE,
+                    this.hoverCell.y * CELL_SIZE + UI_TOP_HEIGHT,
+                    CELL_SIZE,
+                    CELL_SIZE
+                ).fill({ color, alpha: 0.3 });
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE + 1,
+                    this.hoverCell.y * CELL_SIZE + 1 + UI_TOP_HEIGHT,
+                    CELL_SIZE - 2,
+                    CELL_SIZE - 2
+                ).stroke({ color, width: 2 });
+            } else {
+                // Show placement indicator
+                const valid = this.canPlaceEmitter(this.hoverCell.x, this.hoverCell.y);
+
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE,
+                    this.hoverCell.y * CELL_SIZE + UI_TOP_HEIGHT,
+                    CELL_SIZE,
+                    CELL_SIZE
+                ).fill({ color: valid ? 0x00ff00 : 0xff0000, alpha: 0.3 });
+
+                g.rect(
+                    this.hoverCell.x * CELL_SIZE + 1,
+                    this.hoverCell.y * CELL_SIZE + 1 + UI_TOP_HEIGHT,
+                    CELL_SIZE - 2,
+                    CELL_SIZE - 2
+                ).stroke({ color: valid ? 0x00ff00 : 0xff0000, width: 2 });
+            }
         }
     }
 
@@ -518,38 +363,8 @@ export class Game {
 
         // Pause indicator
         this.pauseText = new Text({ text: '', style: { ...textStyle, fill: '#ffaa00' } });
-        this.pauseText.position.set(CANVAS_WIDTH - 180, 15);
+        this.pauseText.position.set(CANVAS_WIDTH - 100, 15);
         this.uiLayer.addChild(this.pauseText);
-
-        // Next Wave button (right aligned in top bar)
-        const waveBtn = new Container();
-        waveBtn.position.set(CANVAS_WIDTH - 90, 8);
-
-        const waveBtnBg = new Graphics();
-        waveBtnBg.roundRect(0, 0, 80, 34, 6)
-            .fill(0x44aa44);
-        waveBtn.addChild(waveBtnBg);
-
-        const waveBtnText = new Text({
-            text: '⚔️ WAVE',
-            style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffffff', fontWeight: 'bold' }
-        });
-        waveBtnText.anchor.set(0.5, 0.5);
-        waveBtnText.position.set(40, 17);
-        waveBtn.addChild(waveBtnText);
-
-        waveBtn.eventMode = 'static';
-        waveBtn.cursor = 'pointer';
-        waveBtn.hitArea = new Rectangle(0, 0, 80, 34);
-
-        const triggerWave = (e: FederatedPointerEvent) => {
-            e.stopPropagation();
-            this.startWave();
-        };
-        waveBtn.on('pointerdown', triggerWave);
-        waveBtn.on('pointertap', triggerWave);
-
-        this.uiLayer.addChild(waveBtn);
 
         // Bottom bar
         const bottomBar = new Graphics();
@@ -557,12 +372,14 @@ export class Game {
             .fill(0x16161e);
         this.uiLayer.addChild(bottomBar);
 
-        // Tower buttons - larger for mobile touch
+        // Tower buttons - larger for better mobile touch
         const types: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
         const buttonWidth = 70;
-        const buttonHeight = 60;
+        const buttonHeight = 55;
         const buttonSpacing = 8;
-        const startX = (CANVAS_WIDTH - (types.length * buttonWidth + (types.length - 1) * buttonSpacing)) / 2;
+        const deleteWidth = 50;
+        const totalWidth = types.length * buttonWidth + (types.length - 1) * buttonSpacing + deleteWidth + buttonSpacing;
+        const startX = (CANVAS_WIDTH - totalWidth) / 2;
 
         types.forEach((type, i) => {
             const def = EMITTER_DEFS[type];
@@ -576,19 +393,19 @@ export class Game {
 
             // Larger icon for visibility
             const icon = new Graphics();
-            icon.circle(buttonWidth / 2, 22, 14)
+            icon.circle(buttonWidth / 2, 20, 14)
                 .fill(def.color);
-            // Inner glow
-            icon.circle(buttonWidth / 2 - 3, 19, 5)
+            // Inner highlight
+            icon.circle(buttonWidth / 2 - 4, 16, 5)
                 .fill({ color: 0xffffff, alpha: 0.3 });
             btn.addChild(icon);
 
             const cost = new Text({
                 text: `$${def.cost}`,
-                style: { fontFamily: 'monospace', fontSize: 14, fill: '#ffffff', fontWeight: 'bold' }
+                style: { fontFamily: 'monospace', fontSize: 13, fill: '#ffffff', fontWeight: 'bold' }
             });
             cost.anchor.set(0.5, 0);
-            cost.position.set(buttonWidth / 2, 42);
+            cost.position.set(buttonWidth / 2, 38);
             btn.addChild(cost);
 
             // Make button interactive with explicit hit area
@@ -596,9 +413,10 @@ export class Game {
             btn.cursor = 'pointer';
             btn.hitArea = new Rectangle(0, 0, buttonWidth, buttonHeight);
 
-            // Use both pointerdown and touchstart for maximum compatibility
+            // Handle both pointerdown and pointertap for reliability
             const selectTower = (e: FederatedPointerEvent) => {
                 e.stopPropagation();
+                this.deleteMode = false;
                 this.setSelectedEmitterType(type);
             };
             btn.on('pointerdown', selectTower);
@@ -607,6 +425,47 @@ export class Game {
             this.towerButtons.push(btn);
             this.uiLayer.addChild(btn);
         });
+
+        // Delete button
+        const deleteBtn = new Container();
+        deleteBtn.position.set(startX + types.length * (buttonWidth + buttonSpacing), GAME_HEIGHT + UI_TOP_HEIGHT + 10);
+
+        const deleteBg = new Graphics();
+        deleteBg.roundRect(0, 0, deleteWidth, buttonHeight, 8)
+            .fill(0x442222);
+        deleteBtn.addChild(deleteBg);
+
+        // X icon
+        const deleteIcon = new Text({
+            text: '✕',
+            style: { fontFamily: 'monospace', fontSize: 20, fill: '#ff6666', fontWeight: 'bold' }
+        });
+        deleteIcon.anchor.set(0.5);
+        deleteIcon.position.set(deleteWidth / 2, 20);
+        deleteBtn.addChild(deleteIcon);
+
+        const deleteLabel = new Text({
+            text: 'DEL',
+            style: { fontFamily: 'monospace', fontSize: 10, fill: '#aa6666' }
+        });
+        deleteLabel.anchor.set(0.5, 0);
+        deleteLabel.position.set(deleteWidth / 2, 38);
+        deleteBtn.addChild(deleteLabel);
+
+        deleteBtn.eventMode = 'static';
+        deleteBtn.cursor = 'pointer';
+        deleteBtn.hitArea = new Rectangle(0, 0, deleteWidth, buttonHeight);
+
+        const toggleDelete = (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.deleteMode = !this.deleteMode;
+            this.state.selectedEmitterType = null;
+        };
+        deleteBtn.on('pointerdown', toggleDelete);
+        deleteBtn.on('pointertap', toggleDelete);
+
+        this.deleteButton = deleteBtn;
+        this.uiLayer.addChild(deleteBtn);
     }
 
     updateUI() {
@@ -614,6 +473,9 @@ export class Game {
         this.healthText.text = `❤️ ${this.state.health}`;
         this.waveText.text = this.state.waveActive ? `Wave ${this.state.wave}` : `Wave ${this.state.wave} ✓`;
         this.pauseText.text = this.autoWaveEnabled ? '' : '⏸ PAUSED';
+
+        const buttonWidth = 70;
+        const buttonHeight = 55;
 
         // Update button highlights
         const types: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
@@ -626,14 +488,26 @@ export class Game {
 
             bg.clear();
             if (selected) {
-                bg.roundRect(0, 0, 70, 60, 8).fill(0x446688);
-                bg.roundRect(0, 0, 70, 60, 8).stroke({ color: 0x88aaff, width: 3 });
+                bg.roundRect(0, 0, buttonWidth, buttonHeight, 8).fill(0x446688);
+                bg.roundRect(0, 0, buttonWidth, buttonHeight, 8).stroke({ color: 0x88aaff, width: 3 });
             } else if (canAfford) {
-                bg.roundRect(0, 0, 70, 60, 8).fill(0x333344);
+                bg.roundRect(0, 0, buttonWidth, buttonHeight, 8).fill(0x333344);
             } else {
-                bg.roundRect(0, 0, 70, 60, 8).fill(0x222233);
+                bg.roundRect(0, 0, buttonWidth, buttonHeight, 8).fill(0x222233);
             }
         });
+
+        // Update delete button highlight
+        if (this.deleteButton) {
+            const deleteBg = this.deleteButton.children[0] as Graphics;
+            deleteBg.clear();
+            if (this.deleteMode) {
+                deleteBg.roundRect(0, 0, 50, buttonHeight, 8).fill(0x662222);
+                deleteBg.roundRect(0, 0, 50, buttonHeight, 8).stroke({ color: 0xff6666, width: 3 });
+            } else {
+                deleteBg.roundRect(0, 0, 50, buttonHeight, 8).fill(0x442222);
+            }
+        }
     }
 
     // ========== Input ==========
@@ -675,12 +549,32 @@ export class Game {
         const grid = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
         if (!grid) return;
 
+        // Check for existing emitter at this location
+        const existingEmitter = this.getEmitterAtGrid(grid.x, grid.y);
+
+        if (this.deleteMode) {
+            // Delete mode - remove the emitter
+            if (existingEmitter) {
+                this.deleteEmitter(existingEmitter);
+            }
+            return;
+        }
+
         if (this.state.selectedEmitterType) {
-            this.placeEmitter(grid.x, grid.y, this.state.selectedEmitterType);
+            if (existingEmitter) {
+                // If same type, upgrade it
+                if (existingEmitter.data_.type === this.state.selectedEmitterType) {
+                    this.upgradeEmitter(existingEmitter);
+                }
+                // If different type, do nothing (can't replace)
+            } else {
+                // Place new emitter
+                this.placeEmitter(grid.x, grid.y, this.state.selectedEmitterType);
+            }
         } else {
-            const emitter = this.getEmitterAtGrid(grid.x, grid.y);
-            if (emitter) {
-                this.selectEmitter(emitter.data_.id);
+            // No tower selected - just select the emitter
+            if (existingEmitter) {
+                this.selectEmitter(existingEmitter.data_.id);
             } else {
                 this.selectEmitter(null);
             }
@@ -728,7 +622,6 @@ export class Game {
         this.updateScreenShake(dt);
 
         // Draw dynamic elements
-        this.drawBackground();
         this.drawNexus();
         this.drawChainEffects();
         this.drawDeathParticles();
@@ -1133,9 +1026,8 @@ export class Game {
     // ========== Game Actions ==========
 
     startWave() {
-        if (this.state.gameOver) return;
+        if (this.state.waveActive || this.state.gameOver) return;
 
-        // Allow overlapping waves - just increment and add more enemies
         this.state.wave++;
         this.state.waveActive = true;
 
@@ -1178,6 +1070,36 @@ export class Game {
         this.occupiedCells.add(`${gx},${gy}`);
 
         return true;
+    }
+
+    upgradeEmitter(emitter: Emitter): boolean {
+        const cost = getUpgradeCost(emitter.data_.level);
+        if (this.state.gold < cost) return false;
+
+        this.state.gold -= cost;
+        emitter.data_.level++;
+        emitter.redraw(); // Redraw with new level indicator
+
+        return true;
+    }
+
+    deleteEmitter(emitter: Emitter): void {
+        // Remove from occupied cells
+        this.occupiedCells.delete(`${emitter.data_.gridX},${emitter.data_.gridY}`);
+
+        // Remove from arrays
+        this.emitters = this.emitters.filter(e => e !== emitter);
+        this.emitterLayer.removeChild(emitter);
+
+        // Refund some gold (50% of base cost)
+        const def = EMITTER_DEFS[emitter.data_.type];
+        const refund = Math.floor(def.cost * 0.5);
+        this.state.gold += refund;
+
+        // Deselect if this was selected
+        if (this.state.selectedEmitterId === emitter.data_.id) {
+            this.selectEmitter(null);
+        }
     }
 
     selectEmitter(id: number | null) {
