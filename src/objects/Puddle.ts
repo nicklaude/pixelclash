@@ -1,13 +1,12 @@
-import Phaser from 'phaser';
+import { Container, Graphics } from 'pixi.js';
 import { PuddleData } from '../types';
 
-export class Puddle extends Phaser.GameObjects.Container {
+export class Puddle extends Container {
     data_: PuddleData;
-    circle: Phaser.GameObjects.Arc;
-    bubbles: Phaser.GameObjects.Graphics;
+    graphics: Graphics;
+    bubbles: Graphics;
 
     constructor(
-        scene: Phaser.Scene,
         x: number,
         y: number,
         id: number,
@@ -16,7 +15,8 @@ export class Puddle extends Phaser.GameObjects.Container {
         slowFactor: number,
         color: number
     ) {
-        super(scene, x, y);
+        super();
+        this.position.set(x, y);
 
         this.data_ = {
             id,
@@ -28,37 +28,42 @@ export class Puddle extends Phaser.GameObjects.Container {
             color,
         };
 
-        // Main puddle
-        this.circle = scene.add.arc(0, 0, radius, 0, 360, false, color, 0.4);
-        this.add(this.circle);
+        this.graphics = new Graphics();
+        this.bubbles = new Graphics();
+        this.addChild(this.graphics, this.bubbles);
 
-        // Bubbles graphics
-        this.bubbles = scene.add.graphics();
-        this.add(this.bubbles);
-
-        scene.add.existing(this);
-        this.setDepth(1);
+        this.draw();
     }
 
-    updatePuddle(dt: number): boolean {
-        this.data_.duration -= dt;
-
-        if (this.data_.duration <= 0) {
-            return false; // Expired
-        }
-
-        // Update alpha based on remaining duration
+    draw() {
         const alpha = Math.min(1, this.data_.duration / 2);
-        this.circle.setFillStyle(this.data_.color, alpha * 0.4);
 
-        // Update bubbles
+        this.graphics.clear();
+        this.graphics.circle(0, 0, this.data_.radius)
+            .fill({ color: this.data_.color, alpha: alpha * 0.4 });
+    }
+
+    drawBubbles() {
+        const alpha = Math.min(1, this.data_.duration / 2);
+
         this.bubbles.clear();
         for (let i = 0; i < 3; i++) {
             const bx = (Math.random() - 0.5) * this.data_.radius;
             const by = (Math.random() - 0.5) * this.data_.radius;
-            this.bubbles.fillStyle(this.data_.color, alpha * 0.6);
-            this.bubbles.fillCircle(bx, by, 2);
+            this.bubbles.circle(bx, by, 2)
+                .fill({ color: this.data_.color, alpha: alpha * 0.6 });
         }
+    }
+
+    update(dt: number): boolean {
+        this.data_.duration -= dt;
+
+        if (this.data_.duration <= 0) {
+            return false;
+        }
+
+        this.draw();
+        this.drawBubbles();
 
         return true;
     }
@@ -66,12 +71,11 @@ export class Puddle extends Phaser.GameObjects.Container {
     expand(additionalDuration: number, maxDuration: number, radiusIncrease: number, maxRadius: number) {
         this.data_.duration = Math.min(this.data_.duration + additionalDuration, maxDuration);
         this.data_.radius = Math.min(this.data_.radius + radiusIncrease, maxRadius);
-        this.circle.setRadius(this.data_.radius);
     }
 
     containsPoint(px: number, py: number): boolean {
-        const dx = px - this.data_.x;
-        const dy = py - this.data_.y;
+        const dx = px - this.x;
+        const dy = py - this.y;
         return dx * dx + dy * dy < this.data_.radius * this.data_.radius;
     }
 }

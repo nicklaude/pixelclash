@@ -2,42 +2,79 @@
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>PixelClash - Particle Tower Defense</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏰</text></svg>">
-    <!-- Pico CSS - minimal dark mode -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
-        :root {
-            --pico-font-family: 'Courier New', monospace;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a2e;
+            font-family: 'Courier New', monospace;
+            touch-action: none;
+            overscroll-behavior: none;
+        }
+
+        /* Prevent iOS callout/magnifier */
+        canvas {
+            -webkit-touch-callout: none;
+            touch-action: none;
         }
 
         body {
-            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 1rem;
-            margin: 0;
-            overflow: hidden;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            /* Prevent pull-to-refresh and other touch gestures on mobile */
+            overscroll-behavior: none;
         }
 
         h1 {
+            color: #4488ff;
+            font-size: clamp(1rem, 4vw, 1.5rem);
             margin-bottom: 0.5rem;
-            font-size: 1.5rem;
-            color: var(--pico-primary);
+            text-shadow: 0 0 10px rgba(68, 136, 255, 0.5);
         }
 
         #game-container {
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-            border: 2px solid var(--pico-muted-border-color);
+            border: 2px solid #333355;
+            max-width: 100%;
+            max-height: calc(100vh - 100px);
+            /* Prevent touch gestures from being intercepted by browser */
+            touch-action: none;
         }
 
         #game-container canvas {
             display: block;
+            max-width: 100%;
+            max-height: calc(100vh - 100px);
+            object-fit: contain;
+            /* Critical for mobile touch - prevents browser from intercepting touch events */
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         #loading {
@@ -46,61 +83,107 @@
             left: 50%;
             transform: translate(-50%, -50%);
             font-size: 24px;
-            color: var(--pico-primary);
+            color: #4488ff;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
         }
 
         #instructions {
-            margin-top: 1rem;
-            font-size: 0.85rem;
-            color: var(--pico-muted-color);
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: #666688;
             text-align: center;
+            padding: 0 1rem;
         }
 
         #instructions kbd {
-            background: var(--pico-card-background-color);
-            border: 1px solid var(--pico-muted-border-color);
+            background: #222244;
+            border: 1px solid #333355;
             border-radius: 4px;
-            padding: 0.1rem 0.4rem;
+            padding: 0.1rem 0.3rem;
             margin: 0 0.1rem;
         }
 
-        #stats-bar {
-            display: flex;
-            justify-content: center;
-            gap: 1.5rem;
-            margin-bottom: 0.5rem;
+        /* Mobile optimizations */
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1rem;
+                margin-bottom: 0.25rem;
+            }
+
+            #instructions {
+                display: none;
+            }
+
+            #game-container {
+                border-radius: 4px;
+                border-width: 1px;
+            }
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            /* Touch device - hide keyboard instructions */
+            #instructions {
+                display: none;
+            }
+        }
+
+        /* Landscape phone optimization */
+        @media (max-height: 500px) and (orientation: landscape) {
+            h1 {
+                display: none;
+            }
+
+            #game-container {
+                max-height: 100vh;
+            }
+
+            body {
+                padding: 0;
+            }
+        }
+
+        /* Debug info bar above game */
+        #debug-info {
+            display: none;
+            justify-content: flex-end;
+            gap: 1rem;
+            width: 100%;
+            max-width: 576px;  /* Match default game canvas width */
+            padding: 0.25rem 0.5rem;
             font-size: 0.75rem;
+            color: #88ff88;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px 4px 0 0;
+            margin-bottom: -2px;
+        }
+
+        #debug-info.visible {
+            display: flex;
+        }
+
+        #debug-info span {
             font-family: 'Courier New', monospace;
-            color: var(--pico-muted-color);
-        }
-
-        #stats-bar span {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-        }
-
-        #stats-bar .stat-value {
-            color: var(--pico-primary);
-            min-width: 2.5rem;
-            text-align: right;
         }
     </style>
 </head>
 <body>
     <h1>🏰 PixelClash</h1>
-    <div id="stats-bar">
-        <span>FPS: <span id="fps-display" class="stat-value">--</span></span>
-        <span>Entities: <span id="entity-display" class="stat-value">--</span></span>
+    <div id="debug-info">
+        <span id="fps-display">FPS: --</span>
+        <span id="entity-display">E:0 P:0 T:0</span>
     </div>
     <div id="game-container">
         <div id="loading">Loading...</div>
     </div>
     <div id="instructions">
-        <kbd>1-4</kbd> or <kbd>←</kbd><kbd>→</kbd> Select tower |
-        <kbd>Click</kbd> Place / Select |
-        <kbd>P</kbd> Pause |
-        <kbd>Esc</kbd> Deselect
+        <kbd>1-4</kbd> Select tower |
+        <kbd>Tap</kbd> Place / Select |
+        <kbd>P</kbd> Pause
     </div>
     <script src="dist/bundle.js"></script>
     <script>
@@ -112,46 +195,54 @@
             }, 500);
         });
 
-        // FPS and entity counter
-        (function() {
-            const fpsDisplay = document.getElementById('fps-display');
-            const entityDisplay = document.getElementById('entity-display');
-
-            let frameCount = 0;
-            let lastTime = performance.now();
-            let fps = 0;
-
-            function updateStats() {
-                frameCount++;
-                const now = performance.now();
-
-                // Update FPS every 500ms
-                if (now - lastTime >= 500) {
-                    fps = Math.round(frameCount * 1000 / (now - lastTime));
-                    frameCount = 0;
-                    lastTime = now;
-                    fpsDisplay.textContent = fps;
-                }
-
-                // Get entity count from Phaser game
-                let entityCount = 0;
-                if (window.Phaser && window.Phaser.GAMES && window.Phaser.GAMES.length > 0) {
-                    const game = window.Phaser.GAMES[0];
-                    const gameScene = game.scene.getScene('GameScene');
-                    if (gameScene) {
-                        const enemies = gameScene.enemies ? gameScene.enemies.getLength() : 0;
-                        const projectiles = gameScene.projectiles ? gameScene.projectiles.getLength() : 0;
-                        entityCount = enemies + projectiles;
-                    }
-                }
-                entityDisplay.textContent = entityCount;
-
-                requestAnimationFrame(updateStats);
+        // Prevent zoom on double tap
+        let lastTouchEnd = 0;
+        document.addEventListener('touchend', (event) => {
+            const now = Date.now();
+            if (now - lastTouchEnd <= 300) {
+                event.preventDefault();
             }
+            lastTouchEnd = now;
+        }, { passive: false });
 
-            // Start after game loads
-            setTimeout(updateStats, 1000);
-        })();
+        // Prevent pull-to-refresh and scrolling
+        document.body.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+        }, { passive: false });
+
+        // Prevent long-press context menu
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        // Prevent text selection on long press
+        document.addEventListener('selectstart', (e) => {
+            e.preventDefault();
+            return false;
+        });
+
+        // Additional touch handlers on game container for safety
+        const gameContainer = document.getElementById('game-container');
+        if (gameContainer) {
+            gameContainer.addEventListener('touchstart', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchmove', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchend', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+        }
     </script>
 </body>
 </html>

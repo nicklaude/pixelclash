@@ -1,15 +1,17 @@
-import Phaser from 'phaser';
-import { ParticleData, ParticleType } from '../types';
+import { Container, Graphics } from 'pixi.js';
+import { ParticleData, ParticleType, Vec2 } from '../types';
+import { PARTICLE_TRAIL_LENGTH } from '../config';
 
-export class Projectile extends Phaser.Physics.Arcade.Sprite {
+export class Projectile extends Container {
     data_: ParticleData;
-    trail: Phaser.GameObjects.Graphics;
-    trailPoints: Array<{ x: number; y: number }> = [];
+    velocity: Vec2;
+    trail: Vec2[] = [];
+    graphics: Graphics;
+    trailGraphics: Graphics;
     color: number;
-    particleRadius: number;
+    size: number;
 
     constructor(
-        scene: Phaser.Scene,
         x: number,
         y: number,
         vx: number,
@@ -21,10 +23,13 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
         lifespan: number,
         knockbackForce: number,
         color: number,
-        radius: number,
-        sourceEmitterId: number
+        size: number
     ) {
-        super(scene, x, y, 'projectile');
+        super();
+        this.position.set(x, y);
+        this.velocity = { x: vx, y: vy };
+        this.color = color;
+        this.size = size;
 
         this.data_ = {
             id,
@@ -34,45 +39,69 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
             type,
             knockbackForce,
             hitEnemies: new Set(),
-            sourceEmitterId,
+            sourceEmitterId: 0,
         };
 
-        this.color = color;
-        this.particleRadius = radius;
+        this.trailGraphics = new Graphics();
+        this.graphics = new Graphics();
+        this.addChild(this.trailGraphics, this.graphics);
 
-        // Set up physics
-        scene.add.existing(this);
-        scene.physics.add.existing(this);
-
-        const body = this.body as Phaser.Physics.Arcade.Body;
-        body.setCircle(radius);
-        body.setOffset(-radius / 2, -radius / 2);
-        body.setVelocity(vx, vy);
-        body.setAllowGravity(false);
-        body.setBounce(0);
-        body.setMaxVelocity(1000);
-
-        this.setVisible(false); // Custom rendering
-
-        // Create trail graphics
-        this.trail = scene.add.graphics();
-        this.trail.setDepth(5);
+        this.draw();
     }
 
-    updateProjectile(dt: number): boolean {
+    draw() {
+        this.graphics.clear();
+
+        // Main particle (pixel style)
+        this.graphics.rect(-this.size / 2, -this.size / 2, this.size, this.size)
+            .fill(this.color);
+
+        // Bright center
+        const innerSize = this.size * 0.5;
+        this.graphics.rect(-innerSize / 2, -innerSize / 2, innerSize, innerSize)
+            .fill(this.lightenColor(this.color, 0.5));
+
+        // Electric glow
+        if (this.data_.type === 'electric') {
+            this.graphics.circle(0, 0, this.size)
+                .fill({ color: 0xffffaa, alpha: 0.3 });
+        }
+    }
+
+    drawTrail() {
+        this.trailGraphics.clear();
+
+        for (let i = 0; i < this.trail.length; i++) {
+            const alpha = 0.5 * (1 - i / this.trail.length);
+            const size = this.size * (1 - i / this.trail.length * 0.5);
+
+            // Trail position relative to current position
+            const tx = this.trail[i].x - this.x;
+            const ty = this.trail[i].y - this.y;
+
+            this.trailGraphics.rect(tx - size / 2, ty - size / 2, size, size)
+                .fill({ color: this.color, alpha });
+        }
+    }
+
+    update(dt: number): boolean {
+        // Store position for trail
+        this.trail.unshift({ x: this.x, y: this.y });
+        if (this.trail.length > PARTICLE_TRAIL_LENGTH) {
+            this.trail.pop();
+        }
+
+        // Update position
+        this.x += this.velocity.x * dt;
+        this.y += this.velocity.y * dt;
+
+        // Lifespan
         this.data_.lifespan -= dt;
 
-        if (this.data_.lifespan <= 0 || this.data_.pierce <= 0) {
-            return false; // Dead
-        }
+        // Draw trail
+        this.drawTrail();
 
-        // Update trail
-        this.trailPoints.push({ x: this.x, y: this.y });
-        if (this.trailPoints.length > 8) {
-            this.trailPoints.shift();
-        }
-
-        return true;
+        return this.data_.lifespan > 0 && this.data_.pierce > 0;
     }
 
     hasHitEnemy(enemyId: number): boolean {
@@ -88,40 +117,10 @@ export class Projectile extends Phaser.Physics.Arcade.Sprite {
         return this.data_.lifespan > 0 && this.data_.pierce > 0;
     }
 
-    drawTrail() {
-        this.trail.clear();
-
-        // Draw trail
-        if (this.trailPoints.length > 1) {
-            const alpha = Math.min(1, this.data_.lifespan * 2);
-
-            for (let i = 1; i < this.trailPoints.length; i++) {
-                const p1 = this.trailPoints[i - 1];
-                const p2 = this.trailPoints[i];
-                const segmentAlpha = (i / this.trailPoints.length) * alpha * 0.5;
-                const lineWidth = this.particleRadius * (i / this.trailPoints.length);
-
-                this.trail.lineStyle(lineWidth, this.color, segmentAlpha);
-                this.trail.beginPath();
-                this.trail.moveTo(p1.x, p1.y);
-                this.trail.lineTo(p2.x, p2.y);
-                this.trail.strokePath();
-            }
-        }
-
-        // Draw main particle
-        const alpha = Math.min(1, this.data_.lifespan * 2);
-        this.trail.fillStyle(this.color, alpha);
-        this.trail.fillCircle(this.x, this.y, this.particleRadius);
-
-        // Glow effect for electric
-        if (this.data_.type === 'electric') {
-            this.trail.fillStyle(0xffffaa, alpha * 0.3);
-            this.trail.fillCircle(this.x, this.y, this.particleRadius * 2);
-        }
-    }
-
-    cleanup() {
-        this.trail.destroy();
+    private lightenColor(color: number, factor: number): number {
+        const r = Math.min(255, Math.floor(((color >> 16) & 255) * (1 + factor)));
+        const g = Math.min(255, Math.floor(((color >> 8) & 255) * (1 + factor)));
+        const b = Math.min(255, Math.floor((color & 255) * (1 + factor)));
+        return (r << 16) | (g << 8) | b;
     }
 }
