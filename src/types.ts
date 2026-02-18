@@ -122,3 +122,26 @@ export interface GameState {
     gameOver: boolean;
     paused: boolean;
 }
+
+// ============================================================================
+// Phase 6: Procedural Tile Map Types
+// ============================================================================
+
+export type TileType = 'sand' | 'stone' | 'water' | 'nexus' | 'foundation';
+
+// Tile type constants for Uint8Array storage
+export const TILE_SAND = 0;
+export const TILE_STONE = 1;
+export const TILE_WATER = 2;
+export const TILE_NEXUS = 3;
+export const TILE_FOUNDATION = 4;
+
+export interface MapData {
+    tiles: Uint8Array;            // Flattened [y * width + x] grid
+    width: number;
+    height: number;
+    path: Vec2[];                 // World-space waypoints
+    foundationCells: Vec2[];      // Valid turret placement cells
+    nexus: Vec2;                  // Grid coords of nexus
+    spawnPoint: Vec2;             // Grid coords of enemy spawn
+}

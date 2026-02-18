@@ -164,6 +164,13 @@ export interface EnemyArrays {
 
     // Scale factor (for splitter children)
     scale: Float32Array;
+
+    // Visual variation (procedural) - Phase 5
+    seed: Uint16Array;           // Random seed per enemy (0-65535)
+    colorVariation: Int8Array;   // Hue shift (-20 to +20)
+    sizeVariation: Int8Array;    // Size delta (-15 to +15 percent)
+    patternId: Uint8Array;       // Pattern variant (0-4)
+    animPhase: Float32Array;     // Animation phase offset
 }
 
 // ============================================================================
@@ -291,6 +298,12 @@ export function createEnemyArrays(maxCount: number = MAX_ENEMIES): EnemyArrays {
         color: new Uint32Array(maxCount),
         size: new Uint8Array(maxCount),
         scale: new Float32Array(maxCount),
+        // Visual variation arrays - Phase 5
+        seed: new Uint16Array(maxCount),
+        colorVariation: new Int8Array(maxCount),
+        sizeVariation: new Int8Array(maxCount),
+        patternId: new Uint8Array(maxCount),
+        animPhase: new Float32Array(maxCount),
     };
 }
 

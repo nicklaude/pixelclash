@@ -12,7 +12,7 @@
  */
 
 import { Container, Graphics, Application } from 'pixi.js';
-import { Vec2 } from '../types';
+import { Vec2, MapData, TILE_STONE, TILE_FOUNDATION } from '../types';
 import { CELL_SIZE, ENEMY_DEFS, EMITTER_DEFS, KNOCKBACK_VELOCITY_THRESHOLD, getUpgradeMultiplier } from '../config';
 import {
     EnemyArrays, ProjectileArrays, EmitterArrays, DeathParticleArrays,
@@ -44,6 +44,9 @@ export class ECSWorld {
     // Path data (shared by all enemies)
     worldPath: Vec2[] = [];
 
+    // Map data (Phase 6: procedural maps)
+    map: MapData | null = null;
+
     // Next entity ID counter
     private nextId: number = 1;
 
@@ -69,6 +72,25 @@ export class ECSWorld {
      */
     setWorldPath(path: Vec2[]): void {
         this.worldPath = path;
+    }
+
+    /**
+     * Set the map data (Phase 6: procedural maps)
+     */
+    setMap(map: MapData): void {
+        this.map = map;
+        this.worldPath = map.path;
+    }
+
+    /**
+     * Get tile at grid position (Phase 6)
+     */
+    getTileAt(gx: number, gy: number): number {
+        if (!this.map) return TILE_STONE;
+        if (gx < 0 || gx >= this.map.width || gy < 0 || gy >= this.map.height) {
+            return TILE_STONE;
+        }
+        return this.map.tiles[gy * this.map.width + gx];
     }
 
     /**
@@ -148,6 +170,15 @@ export class ECSWorld {
         e.size[i] = arch.size;
         e.scale[i] = scale;
 
+        // Visual variation (procedural) - Phase 5
+        const seed = (Math.random() * 65535) | 0;
+        e.seed[i] = seed;
+        // Derive variations from seed using simple hash
+        e.colorVariation[i] = ((seed * 7) % 41) - 20;     // -20 to +20
+        e.sizeVariation[i] = ((seed * 13) % 31) - 15;     // -15 to +15
+        e.patternId[i] = (seed * 3) % 5;                  // 0-4
+        e.animPhase[i] = ((seed * 17) % 628) / 100;       // 0 to ~2PI
+
         // If not spawning at path start, find nearest path index
         if (startPathIndex === 0 && this.worldPath.length > 0) {
             if (x !== this.worldPath[0].x || y !== this.worldPath[0].y) {
@@ -201,6 +232,12 @@ export class ECSWorld {
             e.color[index] = e.color[lastIdx];
             e.size[index] = e.size[lastIdx];
             e.scale[index] = e.scale[lastIdx];
+            // Visual variation arrays - Phase 5
+            e.seed[index] = e.seed[lastIdx];
+            e.colorVariation[index] = e.colorVariation[lastIdx];
+            e.sizeVariation[index] = e.sizeVariation[lastIdx];
+            e.patternId[index] = e.patternId[lastIdx];
+            e.animPhase[index] = e.animPhase[lastIdx];
         }
         e.count--;
     }

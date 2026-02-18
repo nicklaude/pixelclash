@@ -8,6 +8,10 @@
  * - Keeps all game logic in pure ECS systems (typed arrays)
  * - Only uses PixiJS for rendering (no game state in display objects)
  * - Reuses Graphics objects to minimize GC pressure
+ *
+ * Phase 5 Update:
+ * - Added procedural enemy visuals with color/size/pattern variations
+ * - Each enemy type has 5 pattern variants (30 total patterns)
  */
 
 import { Container, Graphics } from 'pixi.js';
@@ -24,6 +28,8 @@ interface EnemyGraphics {
     lastFlashing: boolean;
     lastOnFire: boolean;
     lastHealthPct: number;
+    lastPatternId: number;
+    lastColorVariation: number;
 }
 
 /**
@@ -34,6 +40,7 @@ export class EnemyRenderer {
     private layer: Container;
     private pool: EnemyGraphics[] = [];
     private activeCount: number = 0;
+    private time: number = 0;
 
     constructor(layer: Container) {
         this.layer = layer;
@@ -43,7 +50,9 @@ export class EnemyRenderer {
      * Sync enemy graphics with ECS data.
      * Call this once per frame after systems have updated.
      */
-    sync(enemies: EnemyArrays): void {
+    sync(enemies: EnemyArrays, dt: number = 0.016): void {
+        this.time += dt;
+
         // Ensure we have enough graphics objects
         while (this.pool.length < enemies.count) {
             this.pool.push(this.createEnemyGraphics());
@@ -61,30 +70,38 @@ export class EnemyRenderer {
                 }
             }
 
-            // Update position
-            gfx.container.position.set(enemies.x[i], enemies.y[i]);
+            // Update position with subtle bob animation
+            const animPhase = enemies.animPhase[i];
+            const bobOffset = Math.sin(this.time * 3 + animPhase) * 1.5;
+            gfx.container.position.set(enemies.x[i], enemies.y[i] + bobOffset);
 
             // Check if we need to redraw
             const typeId = enemies.type[i];
             const isFlashing = (enemies.flags[i] & EF_FLASHING) !== 0;
             const isOnFire = (enemies.flags[i] & EF_ON_FIRE) !== 0;
             const healthPct = enemies.health[i] / enemies.maxHealth[i];
+            const patternId = enemies.patternId[i];
+            const colorVariation = enemies.colorVariation[i];
 
             const needsBodyRedraw =
                 (enemies.flags[i] & EF_DIRTY) !== 0 ||
                 gfx.lastTypeId !== typeId ||
                 gfx.lastFlashing !== isFlashing ||
-                gfx.lastOnFire !== isOnFire;
+                gfx.lastOnFire !== isOnFire ||
+                gfx.lastPatternId !== patternId ||
+                gfx.lastColorVariation !== colorVariation;
 
             const needsHealthRedraw =
                 (enemies.flags[i] & EF_HEALTH_DIRTY) !== 0 ||
                 Math.abs(gfx.lastHealthPct - healthPct) > 0.01;
 
             if (needsBodyRedraw) {
-                this.drawEnemyBody(gfx.body, typeId, isFlashing, isOnFire, enemies.size[i]);
+                this.drawEnemyBody(gfx.body, i, enemies);
                 gfx.lastTypeId = typeId;
                 gfx.lastFlashing = isFlashing;
                 gfx.lastOnFire = isOnFire;
+                gfx.lastPatternId = patternId;
+                gfx.lastColorVariation = colorVariation;
                 enemies.flags[i] &= ~EF_DIRTY;
             }
 
@@ -122,29 +139,44 @@ export class EnemyRenderer {
             lastFlashing: false,
             lastOnFire: false,
             lastHealthPct: 1,
+            lastPatternId: -1,
+            lastColorVariation: 0,
         };
     }
 
     /**
-     * Draw enemy body graphics
+     * Draw enemy body graphics with procedural variations
      */
     private drawEnemyBody(
         g: Graphics,
-        typeId: number,
-        isFlashing: boolean,
-        isOnFire: boolean,
-        size: number
+        index: number,
+        enemies: EnemyArrays
     ): void {
         g.clear();
 
-        const arch = ENEMY_ARCHETYPES[typeId];
+        const typeId = enemies.type[index];
         const typeName = ENEMY_TYPE_REVERSE[typeId];
         const def = ENEMY_DEFS[typeName];
-        const s = size || def.size;
+        const arch = ENEMY_ARCHETYPES[typeId];
+        const baseSize = enemies.size[index] || def.size;
+        const scale = enemies.scale[index];
+        const isFlashing = (enemies.flags[index] & EF_FLASHING) !== 0;
+        const isOnFire = (enemies.flags[index] & EF_ON_FIRE) !== 0;
 
+        // Get variation data
+        const colorVariation = enemies.colorVariation[index];
+        const sizeVariation = enemies.sizeVariation[index];
+        const patternId = enemies.patternId[index];
+
+        // Apply size variation
+        const s = baseSize * scale * (1 + sizeVariation / 100);
+
+        // Apply color variation
         let color = arch.color;
         if (isFlashing) {
             color = 0xffffff;
+        } else {
+            color = this.shiftColor(arch.color, colorVariation);
         }
 
         const dark = this.darkenColor(color, 0.5);
@@ -161,79 +193,337 @@ export class EnemyRenderer {
             }
         }
 
-        // Draw pixelated enemy based on type
+        // Draw enemy based on type and pattern
+        this.drawEnemyShape(g, typeName, color, dark, s, patternId);
+    }
+
+    /**
+     * Draw enemy shape with pattern variation
+     */
+    private drawEnemyShape(
+        g: Graphics,
+        typeName: string,
+        color: number,
+        dark: number,
+        s: number,
+        patternId: number
+    ): void {
         switch (typeName) {
             case 'grunt':
-                // Angry square with spikes
+                this.drawGrunt(g, color, dark, s, patternId);
+                break;
+            case 'fast':
+                this.drawFast(g, color, dark, s, patternId);
+                break;
+            case 'tank':
+                this.drawTank(g, color, dark, s, patternId);
+                break;
+            case 'shielded':
+                this.drawShielded(g, color, dark, s, patternId);
+                break;
+            case 'splitter':
+                this.drawSplitter(g, color, dark, s, patternId);
+                break;
+            case 'boss':
+                this.drawBoss(g, color, dark, s, patternId);
+                break;
+            default:
+                // Fallback
                 g.rect(-s, -s, s * 2, s * 2).fill(color);
-                g.rect(-s - 3, -s - 3, 4, 4).fill(dark);
-                g.rect(s - 1, -s - 3, 4, 4).fill(dark);
-                g.rect(-s - 3, s - 1, 4, 4).fill(dark);
-                g.rect(s - 1, s - 1, 4, 4).fill(dark);
+        }
+    }
+
+    // ========== Grunt Patterns ==========
+    private drawGrunt(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Angry square with spikes
+        g.rect(-s, -s, s * 2, s * 2).fill(color);
+        g.rect(-s - 3, -s - 3, 4, 4).fill(dark);
+        g.rect(s - 1, -s - 3, 4, 4).fill(dark);
+        g.rect(-s - 3, s - 1, 4, 4).fill(dark);
+        g.rect(s - 1, s - 1, 4, 4).fill(dark);
+
+        // Pattern variations
+        switch (patternId) {
+            case 0: // Plain with eyes
                 g.rect(-s * 0.5, -s * 0.3, 3, 4).fill(0x000000);
                 g.rect(s * 0.2, -s * 0.3, 3, 4).fill(0x000000);
                 g.rect(-s * 0.4, s * 0.3, s * 0.8, 2).fill(0x000000);
                 break;
+            case 1: // Horizontal stripe
+                g.rect(-s * 0.9, 0, s * 1.8, 3).fill(dark);
+                g.rect(-s * 0.4, -s * 0.3, 2, 3).fill(0x000000);
+                g.rect(s * 0.2, -s * 0.3, 2, 3).fill(0x000000);
+                break;
+            case 2: // Vertical stripe
+                g.rect(-1.5, -s * 0.9, 3, s * 1.8).fill(dark);
+                g.rect(-s * 0.5, -s * 0.2, 2, 3).fill(0x000000);
+                g.rect(s * 0.3, -s * 0.2, 2, 3).fill(0x000000);
+                break;
+            case 3: // Corner dots
+                g.circle(-s * 0.5, -s * 0.5, 3).fill(dark);
+                g.circle(s * 0.5, -s * 0.5, 3).fill(dark);
+                g.circle(-s * 0.5, s * 0.5, 3).fill(dark);
+                g.circle(s * 0.5, s * 0.5, 3).fill(dark);
+                g.rect(-s * 0.4, -s * 0.2, 2, 3).fill(0x000000);
+                g.rect(s * 0.2, -s * 0.2, 2, 3).fill(0x000000);
+                break;
+            case 4: // X marking
+                g.moveTo(-s * 0.7, -s * 0.7);
+                g.lineTo(s * 0.7, s * 0.7);
+                g.stroke({ color: dark, width: 3 });
+                g.moveTo(s * 0.7, -s * 0.7);
+                g.lineTo(-s * 0.7, s * 0.7);
+                g.stroke({ color: dark, width: 3 });
+                g.rect(-s * 0.3, -s * 0.4, 2, 3).fill(0x000000);
+                g.rect(s * 0.1, -s * 0.4, 2, 3).fill(0x000000);
+                break;
+        }
+    }
 
-            case 'fast':
-                // Diamond/arrow shape
-                g.poly([0, -s, s, 0, 0, s * 0.7, -s, 0]).fill(color);
+    // ========== Fast Enemy Patterns ==========
+    private drawFast(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Diamond/arrow
+        g.poly([0, -s, s, 0, 0, s * 0.7, -s, 0]).fill(color);
+
+        // Pattern variations
+        switch (patternId) {
+            case 0: // Plain diamond
                 g.rect(-s - 6, -1, 4, 2).fill({ color: dark, alpha: 0.6 });
                 g.rect(-s - 10, 3, 3, 2).fill({ color: dark, alpha: 0.6 });
                 g.rect(-2, -s * 0.3, 4, 3).fill(0x000000);
                 break;
+            case 1: // Speed lines
+                for (let i = 0; i < 3; i++) {
+                    g.rect(-s - 5 - i * 4, -s * 0.3 + i * 3, 3, 2).fill({ color: dark, alpha: 0.7 - i * 0.2 });
+                }
+                g.rect(-1, -s * 0.2, 3, 2).fill(0x000000);
+                break;
+            case 2: // Chevron marking
+                g.moveTo(-s * 0.5, -s * 0.3);
+                g.lineTo(0, s * 0.1);
+                g.lineTo(s * 0.5, -s * 0.3);
+                g.stroke({ color: dark, width: 2 });
+                g.rect(-1, -s * 0.4, 2, 2).fill(0x000000);
+                break;
+            case 3: // Gradient fade (multiple rects)
+                g.poly([0, -s * 0.6, s * 0.6, 0, 0, s * 0.3, -s * 0.6, 0]).fill({ color: dark, alpha: 0.5 });
+                g.rect(-1, -s * 0.3, 3, 2).fill(0x000000);
+                break;
+            case 4: // Double outline
+                g.poly([0, -s * 0.7, s * 0.7, 0, 0, s * 0.4, -s * 0.7, 0]).stroke({ color: dark, width: 2 });
+                g.rect(-2, -s * 0.3, 4, 3).fill(0x000000);
+                break;
+        }
+    }
 
-            case 'tank':
-                // Big chunky square with armor plates
-                g.rect(-s - 2, -s - 2, s * 2 + 4, s * 2 + 4).fill(dark);
-                g.rect(-s, -s, s * 2, s * 2).fill(color);
+    // ========== Tank Patterns ==========
+    private drawTank(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Big chunky square
+        g.rect(-s - 2, -s - 2, s * 2 + 4, s * 2 + 4).fill(dark);
+        g.rect(-s, -s, s * 2, s * 2).fill(color);
+
+        // Pattern variations
+        switch (patternId) {
+            case 0: // Plain with highlight and visor
                 g.rect(-s + 2, -s + 2, s - 2, s - 2).fill(this.lightenColor(color, 0.3));
                 g.rect(-s * 0.6, -s * 0.2, s * 1.2, 4).fill(0x222222);
                 g.rect(-s * 0.5, -s * 0.1, s, 2).fill({ color: 0x44ffff, alpha: 0.8 });
                 break;
+            case 1: // Armor plates (grid)
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+                        g.rect(i * s * 0.6 - 3, j * s * 0.6 - 3, 6, 6).stroke({ color: dark, width: 1 });
+                    }
+                }
+                g.rect(-s * 0.4, -s * 0.15, s * 0.8, 3).fill(0x222222);
+                break;
+            case 2: // Rivets
+                const rivetPositions = [
+                    [-s * 0.7, -s * 0.7], [s * 0.7, -s * 0.7],
+                    [-s * 0.7, s * 0.7], [s * 0.7, s * 0.7],
+                    [0, -s * 0.7], [0, s * 0.7],
+                ];
+                for (const [rx, ry] of rivetPositions) {
+                    g.circle(rx, ry, 2).fill(dark);
+                }
+                g.rect(-s * 0.5, -s * 0.1, s, 3).fill({ color: 0x44ffff, alpha: 0.6 });
+                break;
+            case 3: // Battle damage (scratches)
+                g.moveTo(-s * 0.6, -s * 0.4);
+                g.lineTo(s * 0.3, s * 0.5);
+                g.stroke({ color: dark, width: 2 });
+                g.moveTo(s * 0.5, -s * 0.6);
+                g.lineTo(-s * 0.2, s * 0.3);
+                g.stroke({ color: dark, width: 2 });
+                g.rect(-s * 0.4, -s * 0.1, s * 0.8, 3).fill({ color: 0x44ffff, alpha: 0.7 });
+                break;
+            case 4: // Shield emblem
+                g.circle(0, 0, s * 0.4).fill(dark);
+                g.circle(0, 0, s * 0.25).fill(color);
+                g.rect(-s * 0.5, -s * 0.1, s, 2).fill({ color: 0x44ffff, alpha: 0.6 });
+                break;
+        }
+    }
 
-            case 'shielded':
-                // Hexagon-ish shape
-                g.poly([
-                    -s * 0.5, -s,
-                    s * 0.5, -s,
-                    s, 0,
-                    s * 0.5, s,
-                    -s * 0.5, s,
-                    -s, 0
-                ]).fill(color);
+    // ========== Shielded Enemy Patterns ==========
+    private drawShielded(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Hexagon
+        g.poly([
+            -s * 0.5, -s,
+            s * 0.5, -s,
+            s, 0,
+            s * 0.5, s,
+            -s * 0.5, s,
+            -s, 0
+        ]).fill(color);
+
+        // Pattern variations
+        switch (patternId) {
+            case 0: // Plain with shine
                 g.rect(-s * 0.3, -s * 0.8, 3, s * 0.6).fill({ color: 0xffffff, alpha: 0.3 });
                 g.rect(-4, -2, 3, 3).fill(0x000000);
                 g.rect(1, -2, 3, 3).fill(0x000000);
                 break;
+            case 1: // Inner hexagon
+                g.poly([
+                    -s * 0.3, -s * 0.6,
+                    s * 0.3, -s * 0.6,
+                    s * 0.6, 0,
+                    s * 0.3, s * 0.6,
+                    -s * 0.3, s * 0.6,
+                    -s * 0.6, 0
+                ]).stroke({ color: dark, width: 2 });
+                g.rect(-3, -2, 2, 2).fill(0x000000);
+                g.rect(1, -2, 2, 2).fill(0x000000);
+                break;
+            case 2: // Energy core
+                g.circle(0, 0, s * 0.35).fill(dark);
+                g.circle(0, 0, s * 0.2).fill({ color: 0x88ffaa, alpha: 0.7 });
+                g.rect(-3, -s * 0.5, 2, 2).fill(0x000000);
+                g.rect(1, -s * 0.5, 2, 2).fill(0x000000);
+                break;
+            case 3: // Force field lines
+                g.moveTo(0, -s * 0.8);
+                g.lineTo(0, s * 0.8);
+                g.stroke({ color: 0xffffff, alpha: 0.2, width: 1 });
+                g.moveTo(-s * 0.7, -s * 0.3);
+                g.lineTo(s * 0.7, s * 0.3);
+                g.stroke({ color: 0xffffff, alpha: 0.2, width: 1 });
+                g.rect(-4, -2, 3, 3).fill(0x000000);
+                g.rect(1, -2, 3, 3).fill(0x000000);
+                break;
+            case 4: // Segmented shell
+                for (let i = 0; i < 6; i++) {
+                    const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+                    const x1 = Math.cos(angle) * s * 0.4;
+                    const y1 = Math.sin(angle) * s * 0.4;
+                    const x2 = Math.cos(angle) * s * 0.8;
+                    const y2 = Math.sin(angle) * s * 0.8;
+                    g.moveTo(x1, y1);
+                    g.lineTo(x2, y2);
+                    g.stroke({ color: dark, width: 2 });
+                }
+                g.rect(-3, -2, 2, 2).fill(0x000000);
+                g.rect(1, -2, 2, 2).fill(0x000000);
+                break;
+        }
+    }
 
-            case 'splitter':
-                // Two connected blobs
-                g.rect(-s, -s * 0.7, s * 0.9, s * 1.4).fill(color);
-                g.rect(s * 0.1, -s * 0.7, s * 0.9, s * 1.4).fill(color);
-                g.rect(-2, -s * 0.3, 4, s * 0.6).fill(dark);
+    // ========== Splitter Patterns ==========
+    private drawSplitter(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Two connected blobs
+        g.rect(-s, -s * 0.7, s * 0.9, s * 1.4).fill(color);
+        g.rect(s * 0.1, -s * 0.7, s * 0.9, s * 1.4).fill(color);
+        g.rect(-2, -s * 0.3, 4, s * 0.6).fill(dark);
+
+        // Pattern variations
+        switch (patternId) {
+            case 0: // Plain with 4 eyes
                 g.rect(-s * 0.7, -s * 0.2, 2, 2).fill(0x000000);
                 g.rect(-s * 0.4, -s * 0.2, 2, 2).fill(0x000000);
                 g.rect(s * 0.3, -s * 0.2, 2, 2).fill(0x000000);
                 g.rect(s * 0.6, -s * 0.2, 2, 2).fill(0x000000);
                 break;
+            case 1: // Split line
+                g.rect(-0.5, -s * 0.6, 1, s * 1.2).fill(0x000000);
+                g.rect(-s * 0.6, -s * 0.15, 2, 2).fill(0x000000);
+                g.rect(s * 0.5, -s * 0.15, 2, 2).fill(0x000000);
+                break;
+            case 2: // Mitosis effect
+                g.circle(-s * 0.5, 0, s * 0.35).stroke({ color: dark, width: 2 });
+                g.circle(s * 0.5, 0, s * 0.35).stroke({ color: dark, width: 2 });
+                g.rect(-s * 0.6, -s * 0.1, 2, 2).fill(0x000000);
+                g.rect(s * 0.5, -s * 0.1, 2, 2).fill(0x000000);
+                break;
+            case 3: // Nucleus dots
+                g.circle(-s * 0.5, 0, 3).fill(dark);
+                g.circle(s * 0.5, 0, 3).fill(dark);
+                g.rect(-s * 0.65, -s * 0.25, 2, 2).fill(0x000000);
+                g.rect(s * 0.5, -s * 0.25, 2, 2).fill(0x000000);
+                break;
+            case 4: // Wavy border
+                g.roundRect(-s * 1.05, -s * 0.75, s * 2.1, s * 1.5, 6).stroke({ color: dark, width: 2 });
+                g.rect(-s * 0.7, -s * 0.2, 2, 2).fill(0x000000);
+                g.rect(-s * 0.4, -s * 0.2, 2, 2).fill(0x000000);
+                g.rect(s * 0.3, -s * 0.2, 2, 2).fill(0x000000);
+                g.rect(s * 0.6, -s * 0.2, 2, 2).fill(0x000000);
+                break;
+        }
+    }
 
-            case 'boss':
-                // Big scary boss - skull-like
-                g.rect(-s - 3, -s - 3, s * 2 + 6, s * 2 + 6).fill(dark);
-                g.rect(-s, -s, s * 2, s * 2).fill(color);
-                g.rect(-s * 0.6, -s * 0.5, s * 0.5, s * 0.6).fill(0x000000);
-                g.rect(s * 0.1, -s * 0.5, s * 0.5, s * 0.6).fill(0x000000);
-                g.rect(-s * 0.5, -s * 0.3, s * 0.3, s * 0.3).fill(0xff0000);
-                g.rect(s * 0.2, -s * 0.3, s * 0.3, s * 0.3).fill(0xff0000);
-                for (let i = 0; i < 4; i++) {
-                    g.rect(-s * 0.6 + i * s * 0.35, s * 0.3, s * 0.25, s * 0.4).fill(0xffffff);
+    // ========== Boss Patterns ==========
+    private drawBoss(g: Graphics, color: number, dark: number, s: number, patternId: number) {
+        // Base shape: Big scary skull-like
+        g.rect(-s - 3, -s - 3, s * 2 + 6, s * 2 + 6).fill(dark);
+        g.rect(-s, -s, s * 2, s * 2).fill(color);
+
+        // Eye sockets
+        g.rect(-s * 0.6, -s * 0.5, s * 0.5, s * 0.6).fill(0x000000);
+        g.rect(s * 0.1, -s * 0.5, s * 0.5, s * 0.6).fill(0x000000);
+
+        // Red glowing eyes
+        g.rect(-s * 0.5, -s * 0.3, s * 0.3, s * 0.3).fill(0xff0000);
+        g.rect(s * 0.2, -s * 0.3, s * 0.3, s * 0.3).fill(0xff0000);
+
+        // Teeth
+        for (let i = 0; i < 4; i++) {
+            g.rect(-s * 0.6 + i * s * 0.35, s * 0.3, s * 0.25, s * 0.4).fill(0xffffff);
+        }
+
+        // Pattern variations (boss enhancements)
+        switch (patternId) {
+            case 0: // Plain menacing
+                break;
+            case 1: // Crown spikes
+                for (let i = -2; i <= 2; i++) {
+                    g.poly([
+                        i * s * 0.3, -s - 3,
+                        i * s * 0.3 - 4, -s - 10,
+                        i * s * 0.3 + 4, -s - 10
+                    ]).fill(dark);
                 }
                 break;
-
-            default:
-                // Fallback
-                g.rect(-s, -s, s * 2, s * 2).fill(color);
+            case 2: // Aura rings
+                g.circle(0, 0, s * 1.4).stroke({ color: 0xff0000, width: 2, alpha: 0.3 });
+                g.circle(0, 0, s * 1.6).stroke({ color: 0xff0000, width: 1, alpha: 0.2 });
+                break;
+            case 3: // Scar marking
+                g.moveTo(-s * 0.8, -s * 0.7);
+                g.lineTo(s * 0.2, s * 0.5);
+                g.stroke({ color: 0x220000, width: 4 });
+                break;
+            case 4: // Horns
+                g.poly([
+                    -s * 0.8, -s,
+                    -s * 1.0, -s - 12,
+                    -s * 0.4, -s
+                ]).fill(0x442222);
+                g.poly([
+                    s * 0.8, -s,
+                    s * 1.0, -s - 12,
+                    s * 0.4, -s
+                ]).fill(0x442222);
+                break;
         }
     }
 
@@ -293,6 +583,25 @@ export class EnemyRenderer {
         }
         this.pool.length = 0;
         this.activeCount = 0;
+    }
+
+    /**
+     * Shift color by variation amount
+     * Positive shift = brighter/more saturated
+     * Negative shift = darker/less saturated
+     */
+    private shiftColor(color: number, shift: number): number {
+        const r = (color >> 16) & 0xff;
+        const g = (color >> 8) & 0xff;
+        const b = color & 0xff;
+
+        // Simple approach: adjust brightness based on shift
+        const factor = 1 + shift / 100;
+        return (
+            (Math.min(255, Math.max(0, Math.round(r * factor))) << 16) |
+            (Math.min(255, Math.max(0, Math.round(g * factor))) << 8) |
+            Math.min(255, Math.max(0, Math.round(b * factor)))
+        );
     }
 
     private darkenColor(color: number, factor: number): number {

@@ -1,8 +1,8 @@
 import { EmitterDef, EnemyDef, PathNode, WaveDef } from './types';
 
-// Grid size (in cells)
-export const GRID_SIZE = 16;  // Smaller grid for better fit
-export const CELL_SIZE = 36;  // pixels per cell
+// Grid size (in cells) - Phase 6: increased to 20x20 for procedural maps
+export const GRID_SIZE = 20;  // Larger grid for procedural generation
+export const CELL_SIZE = 32;  // pixels per cell (adjusted for larger grid)
 export const UI_TOP_HEIGHT = 50;
 export const UI_BOTTOM_HEIGHT = 80;
 export const GAME_WIDTH = GRID_SIZE * CELL_SIZE;
