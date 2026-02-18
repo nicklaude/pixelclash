@@ -442,14 +442,13 @@ export class Game {
             btn.cursor = 'pointer';
             btn.hitArea = new Rectangle(0, 0, buttonWidth, buttonHeight);
 
-            // Handle both pointerdown and pointertap for reliability
+            // Use pointerup for consistent click behavior
             const selectTower = (e: FederatedPointerEvent) => {
                 e.stopPropagation();
                 this.deleteMode = false;
                 this.setSelectedEmitterType(type);
             };
-            btn.on('pointerdown', selectTower);
-            btn.on('pointertap', selectTower);
+            btn.on('pointerup', selectTower);
 
             this.towerButtons.push(btn);
             this.uiLayer.addChild(btn);
@@ -485,13 +484,13 @@ export class Game {
         deleteBtn.cursor = 'pointer';
         deleteBtn.hitArea = new Rectangle(0, 0, deleteWidth, buttonHeight);
 
+        // Use pointerup for consistent click behavior
         const toggleDelete = (e: FederatedPointerEvent) => {
             e.stopPropagation();
             this.deleteMode = !this.deleteMode;
             this.state.selectedEmitterType = null;
         };
-        deleteBtn.on('pointerdown', toggleDelete);
-        deleteBtn.on('pointertap', toggleDelete);
+        deleteBtn.on('pointerup', toggleDelete);
 
         this.deleteButton = deleteBtn;
         this.uiLayer.addChild(deleteBtn);
