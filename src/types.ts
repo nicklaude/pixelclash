@@ -124,12 +124,12 @@ export interface GameState {
 }
 
 // ============================================================================
-// Phase 6: Procedural Tile Map Types
+// Tile types (kept for interface compatibility, not used with fixed path)
 // ============================================================================
 
 export type TileType = 'sand' | 'stone' | 'water' | 'nexus' | 'foundation';
 
-// Tile type constants for Uint8Array storage
+// Tile type constants (kept for compatibility)
 export const TILE_SAND = 0;
 export const TILE_STONE = 1;
 export const TILE_WATER = 2;
