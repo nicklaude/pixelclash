@@ -191,10 +191,10 @@ export const ENEMY_DEFS: Record<string, EnemyDef> = {
     },
 };
 
-// Wave generator
+// Wave generator - 3x spawn rate for more action
 export function generateWave(waveNum: number): WaveDef {
-    const baseCount = 4 + Math.floor(waveNum * 1.5);
-    const spawnDelay = Math.max(400, 1000 - waveNum * 40);
+    const baseCount = 3 * (4 + Math.floor(waveNum * 1.5)); // 3x enemies
+    const spawnDelay = Math.max(150, (1000 - waveNum * 40) / 3); // 3x faster spawning
     const entries: WaveDef['enemies'] = [];
 
     if (waveNum <= 2) {
