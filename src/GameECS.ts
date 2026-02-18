@@ -990,7 +990,7 @@ export class GameECS {
 
             // Find target using spatial hash
             let bestTarget = -1;
-            let bestDistSq = range * range;
+            let bestDistSq = Infinity;
 
             const nearbyEnemies = this.world.getEnemiesNear(emitter.x, emitter.y);
             const enemies = this.world.enemies;
@@ -1000,7 +1000,13 @@ export class GameECS {
                 const dy = enemies.y[ei] - emitter.y;
                 const distSq = dx * dx + dy * dy;
 
-                if (distSq <= bestDistSq) {
+                // Account for enemy size in range check - add enemy radius to effective range
+                // This ensures enemies at the edge of range are still targetable
+                const enemyRadius = enemies.size[ei] * enemies.scale[ei];
+                const effectiveRange = range + enemyRadius;
+                const effectiveRangeSq = effectiveRange * effectiveRange;
+
+                if (distSq <= effectiveRangeSq && distSq < bestDistSq) {
                     bestDistSq = distSq;
                     bestTarget = ei;
                 }
@@ -1011,7 +1017,7 @@ export class GameECS {
                 continue;
             }
 
-            // Lead targeting
+            // Lead targeting - predict where the enemy will be when projectile arrives
             const targetX = enemies.x[bestTarget];
             const targetY = enemies.y[bestTarget];
             const dx = targetX - emitter.x;
@@ -1019,10 +1025,49 @@ export class GameECS {
             const dist = Math.sqrt(dx * dx + dy * dy);
             const timeToHit = dist / def.particleSpeed;
 
+            // Get enemy movement direction from path
+            const pathIdx = enemies.pathIndex[bestTarget];
+            const nextWaypoint = this.worldPath[pathIdx + 1];
+
             let predictX = targetX;
             let predictY = targetY;
 
-            // Simple prediction based on enemy speed (would need path direction for better prediction)
+            if (nextWaypoint) {
+                // Calculate enemy's movement direction
+                const pathDx = nextWaypoint.x - targetX;
+                const pathDy = nextWaypoint.y - targetY;
+                const pathDist = Math.sqrt(pathDx * pathDx + pathDy * pathDy);
+
+                if (pathDist > 0) {
+                    // Normalize direction
+                    const dirX = pathDx / pathDist;
+                    const dirY = pathDy / pathDist;
+
+                    // Calculate effective speed (accounting for slow)
+                    let speedMult = 1;
+                    if (enemies.slowTimer[bestTarget] > 0) {
+                        speedMult = enemies.slowFactor[bestTarget];
+                    }
+                    const enemySpeed = enemies.baseSpeed[bestTarget] * speedMult;
+
+                    // Predict future position with slight overestimation for fast enemies
+                    // Add a small buffer (1.1x) to account for projectile travel time inaccuracies
+                    const predictionTime = timeToHit * 1.1;
+                    predictX = targetX + dirX * enemySpeed * predictionTime;
+                    predictY = targetY + dirY * enemySpeed * predictionTime;
+
+                    // Clamp prediction to not overshoot the waypoint
+                    const predDx = predictX - targetX;
+                    const predDy = predictY - targetY;
+                    const predDist = Math.sqrt(predDx * predDx + predDy * predDy);
+                    if (predDist > pathDist) {
+                        // Don't predict past the waypoint
+                        predictX = nextWaypoint.x;
+                        predictY = nextWaypoint.y;
+                    }
+                }
+            }
+
             emitter.aimAt(predictX, predictY);
 
             // Fire

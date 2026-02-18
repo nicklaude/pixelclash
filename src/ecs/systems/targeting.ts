@@ -24,10 +24,9 @@ export function updateTargeting(
         // Calculate range with level bonus
         const rangeMult = getUpgradeMultiplier(emitters.level[ti]).range;
         const range = def.range * CELL_SIZE * rangeMult;
-        const rangeSq = range * range;
 
         let bestTarget = -1;
-        let bestDistSq = rangeSq;
+        let bestDistSq = Infinity;
 
         const tx = emitters.x[ti];
         const ty = emitters.y[ti];
@@ -40,7 +39,13 @@ export function updateTargeting(
             const dy = enemies.y[ei] - ty;
             const distSq = dx * dx + dy * dy;
 
-            if (distSq <= bestDistSq) {
+            // Account for enemy size in range check
+            // Enemies are in range if their edge is within the turret's range
+            const enemyRadius = enemies.size[ei] * (enemies.scale ? enemies.scale[ei] : 1);
+            const effectiveRange = range + enemyRadius;
+            const effectiveRangeSq = effectiveRange * effectiveRange;
+
+            if (distSq <= effectiveRangeSq && distSq < bestDistSq) {
                 bestDistSq = distSq;
                 bestTarget = ei;
             }

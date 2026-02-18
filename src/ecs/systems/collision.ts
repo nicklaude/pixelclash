@@ -46,8 +46,11 @@ export function detectCollisions(
             const dy = enemies.y[ei] - py;
             const distSq = dx * dx + dy * dy;
 
-            // Get hit radius based on enemy size
-            const hitRadius = enemies.size[ei] + 6;
+            // Get hit radius based on enemy size (accounting for scale) + projectile size + buffer
+            // This ensures scaled enemies (like splitter children) have appropriate hitboxes
+            const enemyRadius = enemies.size[ei] * (enemies.scale ? enemies.scale[ei] : 1);
+            const projectileRadius = projectiles.size[pi] || 3;
+            const hitRadius = enemyRadius + projectileRadius + 2; // 2px buffer for tolerance
             const hitRadiusSq = hitRadius * hitRadius;
 
             if (distSq < hitRadiusSq) {

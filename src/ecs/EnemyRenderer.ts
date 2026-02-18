@@ -586,21 +586,63 @@ export class EnemyRenderer {
     }
 
     /**
-     * Shift color by variation amount
-     * Positive shift = brighter/more saturated
-     * Negative shift = darker/less saturated
+     * Game color palette for procedural variations.
+     * Uses colors from ENEMY_DEFS and EMITTER_DEFS to keep variations cohesive.
+     */
+    private static readonly PALETTE_COLORS: number[] = [
+        // Enemy colors
+        0xcc4444, // grunt red
+        0xcccc44, // fast yellow
+        0x6644aa, // tank purple
+        0x44aa66, // shielded green
+        0xff88ff, // splitter pink
+        0x882222, // boss dark red
+        // Emitter colors (complementary)
+        0x4488ff, // water blue
+        0xff6622, // fire orange
+        0xffff44, // electric yellow
+        0x44ff66, // goo green
+    ];
+
+    /**
+     * Shift color by variation amount using palette-based blending.
+     * Instead of arbitrary brightness shifts, we blend towards nearby palette colors
+     * to keep variations within the game's aesthetic.
      */
     private shiftColor(color: number, shift: number): number {
         const r = (color >> 16) & 0xff;
         const g = (color >> 8) & 0xff;
         const b = color & 0xff;
 
-        // Simple approach: adjust brightness based on shift
-        const factor = 1 + shift / 100;
+        // For small shifts, just adjust saturation/brightness slightly
+        if (Math.abs(shift) <= 10) {
+            const factor = 1 + shift / 150; // More subtle adjustment
+            return (
+                (Math.min(255, Math.max(0, Math.round(r * factor))) << 16) |
+                (Math.min(255, Math.max(0, Math.round(g * factor))) << 8) |
+                Math.min(255, Math.max(0, Math.round(b * factor)))
+            );
+        }
+
+        // For larger shifts, blend towards a palette color
+        // Pick a palette color based on the shift value
+        const paletteIndex = Math.abs(shift) % EnemyRenderer.PALETTE_COLORS.length;
+        const paletteColor = EnemyRenderer.PALETTE_COLORS[paletteIndex];
+        const pr = (paletteColor >> 16) & 0xff;
+        const pg = (paletteColor >> 8) & 0xff;
+        const pb = paletteColor & 0xff;
+
+        // Blend factor: 15-25% towards palette color for subtle variation
+        const blendFactor = 0.15 + (Math.abs(shift) % 10) / 100;
+
+        const nr = Math.round(r + (pr - r) * blendFactor);
+        const ng = Math.round(g + (pg - g) * blendFactor);
+        const nb = Math.round(b + (pb - b) * blendFactor);
+
         return (
-            (Math.min(255, Math.max(0, Math.round(r * factor))) << 16) |
-            (Math.min(255, Math.max(0, Math.round(g * factor))) << 8) |
-            Math.min(255, Math.max(0, Math.round(b * factor)))
+            (Math.min(255, Math.max(0, nr)) << 16) |
+            (Math.min(255, Math.max(0, ng)) << 8) |
+            Math.min(255, Math.max(0, nb))
         );
     }
 
