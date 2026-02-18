@@ -112,15 +112,16 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 ---
 
-### 1.2 Escape Key Enhancement
+### 1.2 Tab Key Enhancement
 
-**Feature:** Pressing Escape key cycles through: deselect turret type -> deselect placed turret -> exit delete mode.
+**Feature:** Pressing Tab key cycles through: deselect turret type -> deselect placed turret -> exit delete mode.
 
 #### Implementation
 
 ```typescript
 // In GameECS.onKeyDown()
-if (e.key === 'Escape') {
+if (e.key === 'Tab') {
+    e.preventDefault();
     if (this.state.selectedEmitterType) {
         this.state.selectedEmitterType = null;
     } else if (this.state.selectedEmitterId) {
@@ -133,7 +134,7 @@ if (e.key === 'Escape') {
 
 #### Checklist
 
-- [ ] Modify `onKeyDown` handler for prioritized Escape behavior
+- [ ] Modify `onKeyDown` handler for prioritized Tab behavior
 - [ ] Test cycling through all states
 
 ---
@@ -149,7 +150,7 @@ if (e.key === 'Escape') {
 | 1-4 | Select tower type (Water, Fire, Electric, Goo) |
 | Space/Enter | Start next wave |
 | P | Toggle auto-wave pause |
-| Escape | Deselect/cancel |
+| Tab | Deselect/cancel (cycle) |
 | Scroll wheel | Upgrade hovered turret |
 | ? or H | Toggle help overlay |
 
@@ -1126,7 +1127,7 @@ Phase 6: Procedural Map (8-12 hours)
 
 - [ ] Right-click deselect (`rightclick` event)
 - [ ] Contextmenu prevention
-- [ ] Enhanced Escape key behavior
+- [ ] Enhanced Tab key behavior
 - [ ] Keyboard shortcuts help overlay
 
 ### Phase 2: Turret Inspection (4-6 hours)
