@@ -101,6 +101,25 @@ export class GameECS {
     // Hover/Selection
     hoverCell: { x: number; y: number } | null = null;
 
+    // Tower selection index for arrow key cycling
+    selectedTowerIndex: number = -1;
+    towerTypes: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
+
+    // Ghost preview
+    ghostPreview: Graphics | null = null;
+
+    // Gold flash effect for insufficient funds
+    goldFlashTimer: number = 0;
+    goldFlashColor: string = '#ffcc00';
+
+    // Wave countdown timer
+    waveCountdownTimer: number = 0;
+    countdownText!: Text;
+
+    // High score tracking
+    highScore: number = 0;
+    highScoreText!: Text;
+
     // Effects
     chainEffects: Array<{ from: Vec2; to: Vec2; timer: number }> = [];
     nexusPulse: number = 0;
@@ -214,6 +233,13 @@ export class GameECS {
         // Create UI
         this.createUI();
 
+        // Create ghost preview graphics
+        this.ghostPreview = new Graphics();
+        this.effectLayer.addChild(this.ghostPreview);
+
+        // Load high score from localStorage
+        this.loadHighScore();
+
         // Set up input
         this.setupInput();
     }
@@ -292,6 +318,11 @@ export class GameECS {
         const g = this.hoverGraphics;
         g.clear();
 
+        // Also clear ghost preview
+        if (this.ghostPreview) {
+            this.ghostPreview.clear();
+        }
+
         if (!this.hoverCell) return;
 
         const existingEmitter = this.getEmitterAtGrid(this.hoverCell.x, this.hoverCell.y);
@@ -331,6 +362,8 @@ export class GameECS {
                 ).stroke({ color, width: 2 });
             } else {
                 const valid = this.canPlaceEmitter(this.hoverCell.x, this.hoverCell.y);
+                const def = EMITTER_DEFS[this.state.selectedEmitterType];
+                const canAfford = this.state.gold >= def.cost;
 
                 g.rect(
                     this.hoverCell.x * CELL_SIZE,
@@ -345,6 +378,24 @@ export class GameECS {
                     CELL_SIZE - 2,
                     CELL_SIZE - 2
                 ).stroke({ color: valid ? 0x00ff00 : 0xff0000, width: 2 });
+
+                // Draw ghost tower preview if placement is valid
+                if (valid && this.ghostPreview) {
+                    const cx = this.hoverCell.x * CELL_SIZE + CELL_SIZE / 2;
+                    const cy = this.hoverCell.y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
+                    const size = CELL_SIZE * 0.7;
+                    const alpha = canAfford ? 0.5 : 0.3;
+
+                    // Draw ghost tower base
+                    this.ghostPreview.rect(cx - size / 2, cy - size / 2, size, size)
+                        .fill({ color: def.color, alpha });
+
+                    // Draw ghost range circle
+                    const range = def.range * CELL_SIZE;
+                    this.ghostPreview.circle(cx, cy, range)
+                        .fill({ color: 0x4488ff, alpha: 0.1 })
+                        .stroke({ color: 0x4488ff, width: 1, alpha: 0.3 });
+                }
             }
         }
     }
@@ -407,8 +458,18 @@ export class GameECS {
         this.uiLayer.addChild(this.waveText);
 
         this.pauseText = new Text({ text: '', style: { ...textStyle, fill: '#ffaa00' } });
-        this.pauseText.position.set(CANVAS_WIDTH - 180, 15);
+        this.pauseText.position.set(CANVAS_WIDTH - 260, 15);
         this.uiLayer.addChild(this.pauseText);
+
+        // High score text
+        this.highScoreText = new Text({ text: `HI: ${this.highScore}`, style: { ...textStyle, fill: '#88ff88', fontSize: 12 } });
+        this.highScoreText.position.set(320, 18);
+        this.uiLayer.addChild(this.highScoreText);
+
+        // Countdown timer text
+        this.countdownText = new Text({ text: '', style: { ...textStyle, fill: '#aaaaff', fontSize: 12 } });
+        this.countdownText.position.set(CANVAS_WIDTH - 180, 18);
+        this.uiLayer.addChild(this.countdownText);
 
         // Next Wave button
         const waveBtn = new Container();
@@ -525,10 +586,31 @@ export class GameECS {
     }
 
     updateUI() {
+        // Gold text with flash effect
+        if (this.goldFlashTimer > 0) {
+            // Flash between red and yellow
+            const flash = Math.sin(this.goldFlashTimer * 20) > 0;
+            this.goldText.style.fill = flash ? '#ff4444' : '#ffcc00';
+        } else {
+            this.goldText.style.fill = '#ffcc00';
+        }
         this.goldText.text = `$ ${this.state.gold}`;
+
         this.healthText.text = `HP ${this.state.health}`;
         this.waveText.text = this.state.waveActive ? `Wave ${this.state.wave}` : `Wave ${this.state.wave} OK`;
         this.pauseText.text = this.autoWaveEnabled ? '' : 'PAUSED';
+
+        // Update high score display
+        const displayHighScore = Math.max(this.highScore, this.state.wave);
+        this.highScoreText.text = `HI: ${displayHighScore}`;
+
+        // Update countdown timer
+        if (!this.state.waveActive && this.autoWaveEnabled && !this.state.gameOver) {
+            const secondsLeft = Math.ceil(this.autoWaveTimer / 1000);
+            this.countdownText.text = `Next: ${secondsLeft}s`;
+        } else {
+            this.countdownText.text = '';
+        }
 
         const buttonWidth = 70;
         const buttonHeight = 55;
@@ -643,7 +725,9 @@ export class GameECS {
         if (e.key === '4') this.setSelectedEmitterType('goo');
         if (e.key === 'Escape') {
             this.state.selectedEmitterType = null;
+            this.selectedTowerIndex = -1;
             this.selectEmitter(null);
+            this.deleteMode = false;
         }
         if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault();
@@ -654,10 +738,34 @@ export class GameECS {
         if (e.key === 'p' || e.key === 'P') {
             this.togglePause();
         }
+        // Arrow keys to cycle tower selection
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            this.cycleTowerSelection(-1);
+        }
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            this.cycleTowerSelection(1);
+        }
     }
 
     onWheel(e: WheelEvent) {
         e.preventDefault();
+
+        const scale = (this.app as any).gameScale || 1;
+        const rect = this.app.canvas.getBoundingClientRect();
+        const y = (e.clientY - rect.top) / scale;
+
+        // Check if mouse is in the bottom bar area
+        const bottomBarY = GAME_HEIGHT + UI_TOP_HEIGHT;
+        if (y >= bottomBarY) {
+            // Cycle tower types with scroll wheel
+            const direction = e.deltaY > 0 ? 1 : -1;
+            this.cycleTowerSelection(direction);
+            return;
+        }
+
+        // Existing behavior: upgrade tower on scroll up
         if (e.deltaY < 0 && this.hoverCell) {
             const emitter = this.getEmitterAtGrid(this.hoverCell.x, this.hoverCell.y);
             if (emitter) {
@@ -673,6 +781,11 @@ export class GameECS {
         if (this.state.paused) return;
 
         const now = performance.now();
+
+        // Update gold flash timer
+        if (this.goldFlashTimer > 0) {
+            this.goldFlashTimer -= dt;
+        }
 
         // Sync next ID with ECS world
         this.world.setNextId(this.state.nextId);
@@ -720,6 +833,7 @@ export class GameECS {
         // Game over
         if (this.state.health <= 0) {
             this.state.gameOver = true;
+            this.saveHighScore();
             this.showGameOver();
         }
 
@@ -1157,7 +1271,10 @@ export class GameECS {
         if (!this.canPlaceEmitter(gx, gy)) return false;
 
         const def = EMITTER_DEFS[type];
-        if (this.state.gold < def.cost) return false;
+        if (this.state.gold < def.cost) {
+            this.flashGold();
+            return false;
+        }
 
         this.state.gold -= def.cost;
 
@@ -1171,7 +1288,10 @@ export class GameECS {
 
     upgradeEmitter(emitter: Emitter): boolean {
         const cost = getUpgradeCost(emitter.data_.level);
-        if (this.state.gold < cost) return false;
+        if (this.state.gold < cost) {
+            this.flashGold();
+            return false;
+        }
 
         this.state.gold -= cost;
         emitter.data_.level++;
@@ -1211,16 +1331,21 @@ export class GameECS {
     }
 
     setSelectedEmitterType(type: EmitterType | null) {
+        this.deleteMode = false;
         const def = type ? EMITTER_DEFS[type] : null;
 
         if (def && this.state.gold < def.cost) {
+            // Flash gold indicator when can't afford
+            this.flashGold();
             return;
         }
 
         if (this.state.selectedEmitterType === type) {
             this.state.selectedEmitterType = null;
+            this.selectedTowerIndex = -1;
         } else {
             this.state.selectedEmitterType = type;
+            this.selectedTowerIndex = type ? this.towerTypes.indexOf(type) : -1;
             this.selectEmitter(null);
         }
     }
@@ -1236,6 +1361,8 @@ export class GameECS {
             .fill({ color: 0x000000, alpha: 0.7 });
         this.uiLayer.addChild(overlay);
 
+        const isNewHighScore = this.state.wave >= this.highScore;
+
         const gameOverText = new Text({
             text: `GAME OVER\nWave ${this.state.wave}`,
             style: {
@@ -1246,8 +1373,21 @@ export class GameECS {
             }
         });
         gameOverText.anchor.set(0.5);
-        gameOverText.position.set(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+        gameOverText.position.set(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 - 20);
         this.uiLayer.addChild(gameOverText);
+
+        // High score display
+        const highScoreLabel = new Text({
+            text: isNewHighScore ? 'NEW HIGH SCORE!' : `Best: Wave ${this.highScore}`,
+            style: {
+                fontFamily: 'monospace',
+                fontSize: 18,
+                fill: isNewHighScore ? '#88ff88' : '#aaaaaa',
+            }
+        });
+        highScoreLabel.anchor.set(0.5);
+        highScoreLabel.position.set(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 40);
+        this.uiLayer.addChild(highScoreLabel);
 
         const restartText = new Text({
             text: 'Tap to restart',
@@ -1258,12 +1398,71 @@ export class GameECS {
             }
         });
         restartText.anchor.set(0.5);
-        restartText.position.set(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 60);
+        restartText.position.set(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2 + 80);
         this.uiLayer.addChild(restartText);
 
         overlay.eventMode = 'static';
         overlay.on('pointerdown', () => {
             window.location.reload();
         });
+    }
+
+    // ========== High Score ==========
+
+    loadHighScore() {
+        try {
+            const stored = localStorage.getItem('pixelclash_highscore');
+            if (stored) {
+                this.highScore = parseInt(stored, 10) || 0;
+            }
+        } catch (e) {
+            // localStorage not available
+            this.highScore = 0;
+        }
+    }
+
+    saveHighScore() {
+        try {
+            if (this.state.wave > this.highScore) {
+                this.highScore = this.state.wave;
+                localStorage.setItem('pixelclash_highscore', this.highScore.toString());
+            }
+        } catch (e) {
+            // localStorage not available
+        }
+    }
+
+    // ========== Tower Cycling ==========
+
+    cycleTowerSelection(direction: number) {
+        this.deleteMode = false;
+
+        if (this.selectedTowerIndex === -1) {
+            // Nothing selected, start from beginning or end based on direction
+            this.selectedTowerIndex = direction > 0 ? 0 : this.towerTypes.length - 1;
+        } else {
+            this.selectedTowerIndex += direction;
+            // Wrap around
+            if (this.selectedTowerIndex >= this.towerTypes.length) {
+                this.selectedTowerIndex = 0;
+            } else if (this.selectedTowerIndex < 0) {
+                this.selectedTowerIndex = this.towerTypes.length - 1;
+            }
+        }
+
+        const type = this.towerTypes[this.selectedTowerIndex];
+        const def = EMITTER_DEFS[type];
+
+        if (this.state.gold < def.cost) {
+            // Flash gold indicator
+            this.flashGold();
+        }
+
+        this.state.selectedEmitterType = type;
+        this.selectEmitter(null);
+    }
+
+    flashGold() {
+        this.goldFlashTimer = 0.3;
     }
 }
