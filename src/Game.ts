@@ -618,6 +618,9 @@ export class Game {
         // Keyboard
         window.addEventListener('keydown', this.onKeyDown.bind(this));
 
+        // Mouse wheel for upgrading turrets (desktop only)
+        canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
+
         // Prevent default touch behaviors on canvas
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
@@ -718,6 +721,19 @@ export class Game {
         if (e.key === 'p' || e.key === 'P') {
             this.togglePause();
         }
+    }
+
+    onWheel(e: WheelEvent) {
+        e.preventDefault();
+
+        // Scroll up (negative deltaY) = upgrade turret at hover position
+        if (e.deltaY < 0 && this.hoverCell) {
+            const emitter = this.getEmitterAtGrid(this.hoverCell.x, this.hoverCell.y);
+            if (emitter) {
+                this.upgradeEmitter(emitter);
+            }
+        }
+        // Scroll down could be used for something else (sell?) but not requested
     }
 
     // ========== Game Logic ==========
