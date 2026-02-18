@@ -12,6 +12,11 @@ export class UIScene extends Phaser.Scene {
     healthText!: Phaser.GameObjects.Text;
     waveText!: Phaser.GameObjects.Text;
     pauseText!: Phaser.GameObjects.Text;
+    waveCountdownText!: Phaser.GameObjects.Text;
+    highScoreText!: Phaser.GameObjects.Text;
+
+    // Flash effect state
+    goldFlashTimer: number = 0;
 
     towerButtons: Map<EmitterType, Phaser.GameObjects.Container> = new Map();
     pauseButton!: Phaser.GameObjects.Container;
@@ -32,6 +37,32 @@ export class UIScene extends Phaser.Scene {
 
     init(data: { gameScene: GameScene }) {
         this.gameScene = data.gameScene;
+    }
+
+    update(time: number, delta: number) {
+        const dt = delta / 1000;
+
+        // Gold flash effect
+        if (this.goldFlashTimer > 0) {
+            this.goldFlashTimer -= dt;
+            const flash = Math.sin(this.goldFlashTimer * 20) > 0;
+            this.goldText.setColor(flash ? '#ff4444' : '#ffcc44');
+            this.goldText.setScale(flash ? 1.1 : 1);
+            if (this.goldFlashTimer <= 0) {
+                this.goldText.setColor('#ffcc44');
+                this.goldText.setScale(1);
+            }
+        }
+
+        // Wave countdown display
+        const gs = this.gameScene;
+        if (gs.autoWaveEnabled && !gs.state.waveActive && !gs.state.gameOver) {
+            const secondsLeft = Math.ceil(gs.autoWaveTimer / 1000);
+            this.waveCountdownText.setText(`Next wave in ${secondsLeft}s`);
+            this.waveCountdownText.setVisible(true);
+        } else {
+            this.waveCountdownText.setVisible(false);
+        }
     }
 
     create() {
@@ -87,6 +118,23 @@ export class UIScene extends Phaser.Scene {
             fontFamily: 'Courier New, monospace',
             color: '#44ff44',
         });
+
+        // Wave countdown timer (between waves)
+        this.waveCountdownText = this.add.text(width / 2, 15, '', {
+            fontSize: '14px',
+            fontFamily: 'Courier New, monospace',
+            color: '#88aaff',
+        });
+        this.waveCountdownText.setOrigin(0.5, 0);
+
+        // High score display
+        this.highScoreText = this.add.text(width / 2, 32, '', {
+            fontSize: '12px',
+            fontFamily: 'Courier New, monospace',
+            color: '#888888',
+        });
+        this.highScoreText.setOrigin(0.5, 0);
+        this.updateHighScoreDisplay();
     }
 
     createBottomHUD(width: number, height: number) {
@@ -96,12 +144,13 @@ export class UIScene extends Phaser.Scene {
         const bg = this.add.rectangle(width / 2, bottomY, width, UI_BOTTOM_HEIGHT, 0x111122, 0.95);
 
         // Tower buttons
-        const towers: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
-        const buttonWidth = 55;
-        const startX = 35;
+        const towers: EmitterType[] = ['water', 'fire', 'electric', 'goo', 'sniper', 'splash'];
+        const buttonWidth = 50;
+        const buttonGap = 6;
+        const startX = 30;
 
         towers.forEach((type, index) => {
-            const x = startX + index * (buttonWidth + 8);
+            const x = startX + index * (buttonWidth + buttonGap);
             const y = bottomY;
             const button = this.createTowerButton(x, y, type);
             this.towerButtons.set(type, button);
@@ -142,17 +191,17 @@ export class UIScene extends Phaser.Scene {
         const container = this.add.container(x, y);
 
         // Background
-        const bg = this.add.rectangle(0, 0, 50, 60, 0x222233, 0.9);
+        const bg = this.add.rectangle(0, 0, 46, 58, 0x222233, 0.9);
         bg.setStrokeStyle(2, 0x555566);
         container.add(bg);
 
         // Icon
-        const icon = this.add.rectangle(0, -10, 25, 25, def.color);
+        const icon = this.add.rectangle(0, -10, 22, 22, def.color);
         container.add(icon);
 
         // Cost text
         const costText = this.add.text(0, 16, `$${def.cost}`, {
-            fontSize: '11px',
+            fontSize: '10px',
             fontFamily: 'Courier New, monospace',
             color: '#ffcc44',
         });
@@ -160,7 +209,9 @@ export class UIScene extends Phaser.Scene {
         container.add(costText);
 
         // Key hint
-        const keyHint = this.add.text(0, -28, `${['1','2','3','4'][['water','fire','electric','goo'].indexOf(type)]}`, {
+        const keyMap = ['1', '2', '3', '4', '5', '6'];
+        const typeIndex = ['water', 'fire', 'electric', 'goo', 'sniper', 'splash'].indexOf(type);
+        const keyHint = this.add.text(0, -28, keyMap[typeIndex] || '', {
             fontSize: '10px',
             fontFamily: 'Courier New, monospace',
             color: '#888888',
@@ -325,13 +376,58 @@ export class UIScene extends Phaser.Scene {
         });
 
         gs.events.on('gameOver', (wave: number) => {
-            this.finalWaveText.setText(`You survived ${wave} waves`);
+            const isNewHighScore = this.saveHighScore(wave);
+            if (isNewHighScore) {
+                this.finalWaveText.setText(`NEW HIGH SCORE!\nYou survived ${wave} waves`);
+            } else {
+                this.finalWaveText.setText(`You survived ${wave} waves`);
+            }
             this.gameOverPanel.setVisible(true);
         });
 
         gs.events.on('pauseChanged', (isPaused: boolean) => {
             this.updatePauseButton(isPaused);
         });
+
+        gs.events.on('insufficientFunds', () => {
+            this.flashGold();
+        });
+    }
+
+    flashGold() {
+        this.goldFlashTimer = 0.5; // Flash for 0.5 seconds
+    }
+
+    updateHighScoreDisplay() {
+        const highScore = this.getHighScore();
+        if (highScore > 0) {
+            this.highScoreText.setText(`Best: Wave ${highScore}`);
+        } else {
+            this.highScoreText.setText('');
+        }
+    }
+
+    getHighScore(): number {
+        try {
+            const stored = localStorage.getItem('pixelclash_highscore');
+            return stored ? parseInt(stored, 10) : 0;
+        } catch {
+            return 0;
+        }
+    }
+
+    saveHighScore(wave: number) {
+        try {
+            const current = this.getHighScore();
+            if (wave > current) {
+                localStorage.setItem('pixelclash_highscore', wave.toString());
+                this.updateHighScoreDisplay();
+                return true; // New high score
+            }
+        } catch {
+            // localStorage not available
+        }
+        return false;
     }
 
     updateUI() {

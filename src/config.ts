@@ -123,6 +123,37 @@ export const EMITTER_DEFS: Record<string, EmitterDef> = {
         slowDuration: 3,
         puddleDuration: 5,
     },
+    sniper: {
+        type: 'sniper',
+        cost: 75,
+        range: 10,              // Very long range
+        damage: 45,             // High single-target damage
+        fireRate: 0.8,          // Slow fire rate
+        color: 0x8844cc,        // Purple
+        particlesPerShot: 1,
+        particleSpeed: 1200,    // Very fast projectile
+        particlePierce: 1,      // Single target only
+        particleLifespan: 2,
+        spreadAngle: 0,         // Perfect accuracy
+        knockbackForce: 200,    // Strong knockback on hit
+        description: 'Long range, slow fire, high single-target damage',
+    },
+    splash: {
+        type: 'splash',
+        cost: 60,
+        range: 5,
+        damage: 8,              // Base damage
+        fireRate: 2,            // Moderate fire rate
+        color: 0xff8844,        // Orange
+        particlesPerShot: 1,
+        particleSpeed: 350,
+        particlePierce: 1,
+        particleLifespan: 1.5,
+        spreadAngle: 0,
+        knockbackForce: 40,
+        description: 'Area damage explosion on impact',
+        splashRadius: 60,       // Splash damage radius in pixels
+    },
 };
 
 // Enemy definitions - faster gameplay!
@@ -189,6 +220,29 @@ export const ENEMY_DEFS: Record<string, EnemyDef> = {
         friction: 0.93,
         spawnMinions: true,
     },
+    healer: {
+        type: 'healer',
+        health: 30,
+        speed: 90,
+        reward: 15,
+        color: 0x44ff88,        // Green tint
+        size: 10,
+        mass: 1,
+        friction: 0.85,
+        healRadius: 80,         // Pixels - heals enemies within this range
+        healAmount: 8,          // HP per second
+    },
+    cloaked: {
+        type: 'cloaked',
+        health: 20,
+        speed: 150,             // Fast
+        reward: 12,
+        color: 0x666688,        // Grayish purple
+        size: 8,
+        mass: 0.7,
+        friction: 0.82,
+        cloaked: true,          // Appears faded/transparent
+    },
 };
 
 // Wave generator
@@ -202,27 +256,38 @@ export function generateWave(waveNum: number): WaveDef {
     } else if (waveNum <= 5) {
         entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.6), delay: spawnDelay });
         entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.4), delay: spawnDelay * 0.7 });
-    } else if (waveNum <= 10) {
+    } else if (waveNum <= 8) {
         entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.35), delay: spawnDelay });
         entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.25), delay: spawnDelay * 0.7 });
         entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 1.5 });
-        entries.push({ type: 'shielded', count: Math.ceil(baseCount * 0.2), delay: spawnDelay });
-    } else if (waveNum <= 15) {
+        entries.push({ type: 'cloaked', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 0.6 });
+    } else if (waveNum <= 12) {
         entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.25), delay: spawnDelay });
-        entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 0.5 });
-        entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 1.5 });
+        entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 0.5 });
+        entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.5 });
         entries.push({ type: 'shielded', count: Math.ceil(baseCount * 0.15), delay: spawnDelay });
-        entries.push({ type: 'splitter', count: Math.ceil(baseCount * 0.2), delay: spawnDelay });
+        entries.push({ type: 'cloaked', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 0.6 });
+        entries.push({ type: 'healer', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.2 });
+    } else if (waveNum <= 15) {
+        entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.2), delay: spawnDelay });
+        entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 0.5 });
+        entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.5 });
+        entries.push({ type: 'shielded', count: Math.ceil(baseCount * 0.1), delay: spawnDelay });
+        entries.push({ type: 'splitter', count: Math.ceil(baseCount * 0.15), delay: spawnDelay });
+        entries.push({ type: 'cloaked', count: Math.ceil(baseCount * 0.1), delay: spawnDelay * 0.6 });
+        entries.push({ type: 'healer', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.2 });
     } else {
         // Boss waves every 5 waves after 15
         if (waveNum % 5 === 0) {
             entries.push({ type: 'boss', count: 1, delay: spawnDelay * 3 });
         }
-        entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.2), delay: spawnDelay });
-        entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 0.5 });
-        entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.2), delay: spawnDelay * 1.5 });
-        entries.push({ type: 'splitter', count: Math.ceil(baseCount * 0.25), delay: spawnDelay });
-        entries.push({ type: 'shielded', count: Math.ceil(baseCount * 0.15), delay: spawnDelay });
+        entries.push({ type: 'grunt', count: Math.ceil(baseCount * 0.15), delay: spawnDelay });
+        entries.push({ type: 'fast', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 0.5 });
+        entries.push({ type: 'tank', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.5 });
+        entries.push({ type: 'splitter', count: Math.ceil(baseCount * 0.15), delay: spawnDelay });
+        entries.push({ type: 'shielded', count: Math.ceil(baseCount * 0.1), delay: spawnDelay });
+        entries.push({ type: 'cloaked', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 0.6 });
+        entries.push({ type: 'healer', count: Math.ceil(baseCount * 0.15), delay: spawnDelay * 1.2 });
     }
 
     return {

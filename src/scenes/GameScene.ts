@@ -403,6 +403,34 @@ export class GameScene extends Phaser.Scene {
                 for (let i = 0; i < 4; i++) {
                     g.fillRect(x - s * 0.6 + i * s * 0.35, y + s * 0.3, s * 0.25, s * 0.4);
                 }
+            } else if (type === 'healer') {
+                // Healer - circular with cross/plus sign
+                g.fillStyle(color, 1);
+                g.fillCircle(x, y, s);
+                // Cross symbol
+                g.fillStyle(0xffffff, 1);
+                g.fillRect(x - 2, y - s * 0.6, 4, s * 1.2); // vertical
+                g.fillRect(x - s * 0.6, y - 2, s * 1.2, 4); // horizontal
+                // Healing aura (pulsing)
+                const healPulse = 0.3 + Math.sin(performance.now() * 0.005) * 0.2;
+                g.fillStyle(0x44ff88, healPulse);
+                g.fillCircle(x, y, s + 8);
+            } else if (type === 'cloaked') {
+                // Cloaked enemy - semi-transparent, ghostly
+                const cloakAlpha = 0.35 + Math.sin(performance.now() * 0.003) * 0.15;
+                g.fillStyle(color, cloakAlpha);
+                // Diamond/stealth shape
+                g.beginPath();
+                g.moveTo(x, y - s);
+                g.lineTo(x + s * 0.8, y);
+                g.lineTo(x, y + s);
+                g.lineTo(x - s * 0.8, y);
+                g.closePath();
+                g.fillPath();
+                // Ghost eyes
+                g.fillStyle(0xffffff, cloakAlpha + 0.3);
+                g.fillRect(x - 4, y - 2, 3, 3);
+                g.fillRect(x + 1, y - 2, 3, 3);
             } else {
                 // Fallback - simple square
                 g.fillStyle(color, 1);
@@ -458,22 +486,43 @@ export class GameScene extends Phaser.Scene {
 
         if (this.hoverCell && this.state.selectedEmitterType) {
             const valid = this.canPlaceEmitter(this.hoverCell.x, this.hoverCell.y);
+            const def = EMITTER_DEFS[this.state.selectedEmitterType];
+            const canAfford = this.state.gold >= def.cost;
 
-            g.fillStyle(valid ? 0x00ff00 : 0xff0000, 0.3);
-            g.fillRect(
-                this.hoverCell.x * CELL_SIZE,
-                this.hoverCell.y * CELL_SIZE + this.gameOffsetY,
-                CELL_SIZE,
-                CELL_SIZE
-            );
+            const cellX = this.hoverCell.x * CELL_SIZE;
+            const cellY = this.hoverCell.y * CELL_SIZE + this.gameOffsetY;
+            const centerX = cellX + CELL_SIZE / 2;
+            const centerY = cellY + CELL_SIZE / 2;
 
-            g.lineStyle(2, valid ? 0x00ff00 : 0xff0000, 1);
-            g.strokeRect(
-                this.hoverCell.x * CELL_SIZE + 1,
-                this.hoverCell.y * CELL_SIZE + 1 + this.gameOffsetY,
-                CELL_SIZE - 2,
-                CELL_SIZE - 2
-            );
+            // Cell highlight
+            const validColor = canAfford ? 0x00ff00 : 0xffaa00;
+            g.fillStyle(valid ? validColor : 0xff0000, 0.2);
+            g.fillRect(cellX, cellY, CELL_SIZE, CELL_SIZE);
+
+            g.lineStyle(2, valid ? validColor : 0xff0000, 0.8);
+            g.strokeRect(cellX + 1, cellY + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+
+            // Ghost tower preview (only if valid placement)
+            if (valid) {
+                const ghostAlpha = canAfford ? 0.5 : 0.3;
+                const size = CELL_SIZE * 0.7;
+
+                // Ghost base
+                g.fillStyle(def.color, ghostAlpha);
+                g.fillRect(centerX - size / 2, centerY - size / 2, size, size);
+
+                // Ghost barrel (pointing right)
+                const darkColor = this.darkenColor(def.color, 0.7);
+                g.fillStyle(darkColor, ghostAlpha);
+                g.fillRect(centerX, centerY - 4, size * 0.4, 8);
+
+                // Range preview circle
+                const range = def.range * CELL_SIZE;
+                g.lineStyle(1, def.color, ghostAlpha * 0.6);
+                g.strokeCircle(centerX, centerY, range);
+                g.fillStyle(def.color, ghostAlpha * 0.1);
+                g.fillCircle(centerX, centerY, range);
+            }
         }
     }
 
@@ -490,6 +539,36 @@ export class GameScene extends Phaser.Scene {
     updateEnemies(dt: number) {
         const toRemove: Enemy[] = [];
 
+        // First pass: healer enemies heal nearby allies
+        this.enemies.getChildren().forEach((child) => {
+            const healer = child as Enemy;
+            if (!healer.active || healer.data_.type !== 'healer') return;
+
+            const healerDef = ENEMY_DEFS[healer.data_.type];
+            const healRadius = healerDef.healRadius || 0;
+            const healAmount = healerDef.healAmount || 0;
+
+            if (healRadius > 0 && healAmount > 0) {
+                this.enemies.getChildren().forEach((otherChild) => {
+                    const other = otherChild as Enemy;
+                    if (!other.active || other === healer) return;
+
+                    const dx = other.x - healer.x;
+                    const dy = other.y - healer.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist <= healRadius) {
+                        // Heal the ally
+                        other.data_.health = Math.min(
+                            other.data_.maxHealth,
+                            other.data_.health + healAmount * dt
+                        );
+                    }
+                });
+            }
+        });
+
+        // Second pass: normal enemy updates
         this.enemies.getChildren().forEach((child) => {
             const enemy = child as Enemy;
             if (!enemy.active) return;
@@ -696,6 +775,17 @@ export class GameScene extends Phaser.Scene {
                         if (emitterDef.puddleDuration) {
                             this.createOrExpandPuddle(proj.x, proj.y, emitterDef);
                         }
+
+                        // Splash damage (area damage)
+                        if (emitterDef.splashRadius && emitterDef.splashRadius > 0) {
+                            this.applySplashDamage(
+                                proj.x,
+                                proj.y,
+                                emitterDef.splashRadius,
+                                proj.data_.damage * 0.5, // Splash does 50% damage
+                                enemy.data_.id
+                            );
+                        }
                     }
 
                     if (!proj.isAlive()) {
@@ -840,6 +930,46 @@ export class GameScene extends Phaser.Scene {
 
     // ========== Special Effects ==========
 
+    applySplashDamage(x: number, y: number, radius: number, damage: number, excludeId: number) {
+        // Create splash visual effect
+        this.deathParticles.push({
+            x, y,
+            vx: 0, vy: 0,
+            color: 0xff8844,
+            size: radius * 0.3,
+            life: 0.2,
+        });
+        // Ring effect
+        for (let i = 0; i < 8; i++) {
+            const angle = (Math.PI * 2 / 8) * i;
+            this.deathParticles.push({
+                x: x + Math.cos(angle) * radius * 0.5,
+                y: y + Math.sin(angle) * radius * 0.5,
+                vx: Math.cos(angle) * 80,
+                vy: Math.sin(angle) * 80,
+                color: 0xffaa44,
+                size: 4,
+                life: 0.3,
+            });
+        }
+
+        // Apply damage to all enemies in radius (except the one already hit)
+        this.enemies.getChildren().forEach((child) => {
+            const enemy = child as Enemy;
+            if (!enemy.active || enemy.data_.id === excludeId) return;
+
+            const dx = enemy.x - x;
+            const dy = enemy.y - y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist <= radius) {
+                // Damage falls off with distance
+                const falloff = 1 - (dist / radius) * 0.5;
+                enemy.takeDamage(damage * falloff);
+            }
+        });
+    }
+
     chainLightning(startEnemy: Enemy, damage: number, maxChains: number) {
         let lastTarget: Enemy = startEnemy;
         const hit = new Set<number>([startEnemy.data_.id]);
@@ -938,7 +1068,10 @@ export class GameScene extends Phaser.Scene {
         if (!this.canPlaceEmitter(gx, gy)) return false;
 
         const def = EMITTER_DEFS[type];
-        if (this.state.gold < def.cost) return false;
+        if (this.state.gold < def.cost) {
+            this.events.emit('insufficientFunds');
+            return false;
+        }
 
         this.state.gold -= def.cost;
         this.events.emit('goldChanged', this.state.gold);
@@ -1053,6 +1186,8 @@ export class GameScene extends Phaser.Scene {
         if (event.key === '2') this.setSelectedEmitterType('fire');
         if (event.key === '3') this.setSelectedEmitterType('electric');
         if (event.key === '4') this.setSelectedEmitterType('goo');
+        if (event.key === '5') this.setSelectedEmitterType('sniper');
+        if (event.key === '6') this.setSelectedEmitterType('splash');
         if (event.key === 'Escape') {
             this.state.selectedEmitterType = null;
             this.selectEmitter(null);
@@ -1080,6 +1215,7 @@ export class GameScene extends Phaser.Scene {
         const def = type ? EMITTER_DEFS[type] : null;
 
         if (def && this.state.gold < def.cost) {
+            this.events.emit('insufficientFunds');
             return; // Can't afford
         }
 
