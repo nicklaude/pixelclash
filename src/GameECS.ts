@@ -22,6 +22,7 @@ import {
 import { GameState, EmitterType, EnemyType, Vec2, ParticleType } from './types';
 import { Emitter } from './objects/Emitter';
 import { Puddle } from './objects/Puddle';
+import { GameSettings, DEFAULT_SETTINGS, DIFFICULTY_PRESETS, saveSettings, loadSettings } from './ui/SettingsMenu';
 
 // ECS imports
 import {
@@ -119,6 +120,25 @@ export class GameECS {
     // Spatial hash for puddles (enemies use ECS spatial hash)
     puddleSpatialHash: SpatialHash<Puddle>;
 
+    // Help overlay
+    helpOverlay: Container | null = null;
+    helpOverlayVisible: boolean = false;
+
+    // Settings menu
+    settingsMenu: Container | null = null;
+    settingsMenuVisible: boolean = false;
+
+    // Turret inspection panel
+    inspectPanel: Container | null = null;
+    rangeGraphics: Graphics;
+
+    // Settings state
+    settings: GameSettings = { ...DEFAULT_SETTINGS };
+
+    // Debug displays
+    fpsText: Text | null = null;
+    entityText: Text | null = null;
+
     // Reusable arrays to avoid per-frame allocations
     private reachedEndIndices: number[] = [];
     private dotKilledIndices: number[] = [];
@@ -208,6 +228,10 @@ export class GameECS {
         this.chainGraphics = new Graphics();
         this.effectLayer.addChild(this.chainGraphics);
 
+        // Range graphics for turret inspection
+        this.rangeGraphics = new Graphics();
+        this.effectLayer.addChild(this.rangeGraphics);
+
         // Draw static grid
         this.drawGrid();
 
@@ -216,6 +240,11 @@ export class GameECS {
 
         // Set up input
         this.setupInput();
+
+        // Load settings from localStorage
+        this.settings = loadSettings();
+        this.autoWaveEnabled = this.settings.autoWaveEnabled;
+        this.autoWaveTimer = this.settings.autoWaveDelay;
     }
 
     // ========== Grid Helpers ==========
@@ -436,6 +465,45 @@ export class GameECS {
         waveBtn.on('pointerdown', (e: FederatedPointerEvent) => e.stopPropagation());
         this.uiLayer.addChild(waveBtn);
 
+        // Settings (gear) button - positioned before the WAVE button
+        const settingsBtn = new Container();
+        settingsBtn.position.set(CANVAS_WIDTH - 175, 8);
+
+        const settingsBtnBg = new Graphics();
+        settingsBtnBg.roundRect(0, 0, 34, 34, 6).fill(0x444455);
+        settingsBtn.addChild(settingsBtnBg);
+
+        // Draw gear icon
+        const gearIcon = new Graphics();
+        const gearCx = 17;
+        const gearCy = 17;
+        const outerR = 10;
+        const innerR = 5;
+        const teeth = 6;
+
+        // Outer gear shape
+        gearIcon.circle(gearCx, gearCy, outerR).fill(0xaaaaaa);
+        // Center hole
+        gearIcon.circle(gearCx, gearCy, innerR).fill(0x444455);
+        // Gear teeth
+        for (let i = 0; i < teeth; i++) {
+            const angle = (i / teeth) * Math.PI * 2;
+            const tx = gearCx + Math.cos(angle) * 12;
+            const ty = gearCy + Math.sin(angle) * 12;
+            gearIcon.circle(tx, ty, 3).fill(0xaaaaaa);
+        }
+        settingsBtn.addChild(gearIcon);
+
+        settingsBtn.eventMode = 'static';
+        settingsBtn.cursor = 'pointer';
+        settingsBtn.hitArea = new Rectangle(0, 0, 34, 34);
+        settingsBtn.on('pointertap', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.toggleSettingsMenu();
+        });
+        settingsBtn.on('pointerdown', (e: FederatedPointerEvent) => e.stopPropagation());
+        this.uiLayer.addChild(settingsBtn);
+
         // Bottom bar
         const bottomBar = new Graphics();
         bottomBar.rect(0, GAME_HEIGHT + UI_TOP_HEIGHT, CANVAS_WIDTH, UI_BOTTOM_HEIGHT).fill(0x16161e);
@@ -562,6 +630,14 @@ export class GameECS {
                 deleteBg.roundRect(0, 0, 50, buttonHeight, 8).fill(0x442222);
             }
         }
+
+        // Update debug displays
+        if (this.fpsText && this.settings.showFPS) {
+            this.fpsText.text = `FPS: ${Math.round(this.app.ticker.FPS)}`;
+        }
+        if (this.entityText && this.settings.showEntityCount) {
+            this.entityText.text = `E:${this.world.enemies.count} P:${this.world.projectiles.count} T:${this.emitters.length}`;
+        }
     }
 
     // ========== Input ==========
@@ -581,6 +657,17 @@ export class GameECS {
         this.app.stage.on('pointermove', this.onPointerMove.bind(this));
         this.app.stage.on('pointerup', this.onPointerUp.bind(this));
         this.app.stage.on('pointercancel', () => { this.pointerDown = false; });
+
+        // Right-click to deselect
+        this.app.stage.on('rightclick', (e: FederatedPointerEvent) => {
+            e.preventDefault();
+            this.state.selectedEmitterType = null;
+            this.selectEmitter(null);
+            this.deleteMode = false;
+        });
+
+        // Prevent context menu on canvas
+        canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
         window.addEventListener('keydown', this.onKeyDown.bind(this));
         canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
@@ -637,14 +724,30 @@ export class GameECS {
     }
 
     onKeyDown(e: KeyboardEvent) {
+        // Ignore keyboard input when settings menu is open
+        if (this.settingsMenuVisible) return;
+
         if (e.key === '1') this.setSelectedEmitterType('water');
         if (e.key === '2') this.setSelectedEmitterType('fire');
         if (e.key === '3') this.setSelectedEmitterType('electric');
         if (e.key === '4') this.setSelectedEmitterType('goo');
+
+        // Enhanced Escape key: cycles through deselect turret type -> deselect placed turret -> exit delete mode
         if (e.key === 'Escape') {
-            this.state.selectedEmitterType = null;
-            this.selectEmitter(null);
+            if (this.state.selectedEmitterType) {
+                this.state.selectedEmitterType = null;
+            } else if (this.state.selectedEmitterId) {
+                this.selectEmitter(null);
+            } else if (this.deleteMode) {
+                this.deleteMode = false;
+            }
         }
+
+        // Toggle help overlay with ? or H
+        if (e.key === '?' || e.key === 'h' || e.key === 'H') {
+            this.toggleHelpOverlay();
+        }
+
         if (e.key === ' ' || e.key === 'Enter') {
             e.preventDefault();
             if (!this.state.waveActive) {
@@ -1132,13 +1235,17 @@ export class GameECS {
         let totalDelay = 0;
         const now = performance.now();
 
+        // Apply spawn rate multiplier (higher = faster spawns = shorter delays)
+        const spawnRateMultiplier = this.settings.spawnRateMultiplier;
+
         for (const entry of waveDef.enemies) {
             for (let i = 0; i < entry.count; i++) {
                 this.state.spawnQueue.push({
                     type: entry.type,
                     spawnAt: now + totalDelay,
                 });
-                totalDelay += entry.delay;
+                // Divide delay by multiplier: 2x multiplier = half the delay = faster spawns
+                totalDelay += entry.delay / spawnRateMultiplier;
             }
         }
     }
@@ -1175,6 +1282,7 @@ export class GameECS {
 
         this.state.gold -= cost;
         emitter.data_.level++;
+        emitter.data_.totalInvestment += cost;  // Track investment for sell value
         emitter.redraw();
 
         return true;
@@ -1195,10 +1303,28 @@ export class GameECS {
     }
 
     selectEmitter(id: number | null) {
+        // Clear previous inspection panel
+        if (this.inspectPanel) {
+            this.uiLayer.removeChild(this.inspectPanel);
+            this.inspectPanel.destroy({ children: true });
+            this.inspectPanel = null;
+        }
+        this.rangeGraphics.clear();
+
         for (const emitter of this.emitters) {
             emitter.setSelected(emitter.data_.id === id);
         }
         this.state.selectedEmitterId = id;
+
+        // Show inspection panel if turret selected and no tower type selected
+        if (id !== null && !this.state.selectedEmitterType) {
+            const emitter = this.emitters.find(e => e.data_.id === id);
+            if (emitter) {
+                this.inspectPanel = this.buildInspectPanel(emitter);
+                this.uiLayer.addChild(this.inspectPanel);
+                this.drawRangeRing(emitter);
+            }
+        }
     }
 
     getEmitterAtGrid(gx: number, gy: number): Emitter | null {
@@ -1221,8 +1347,16 @@ export class GameECS {
             this.state.selectedEmitterType = null;
         } else {
             this.state.selectedEmitterType = type;
-            this.selectEmitter(null);
+            this.selectEmitter(null);  // This will also clear inspect panel
         }
+
+        // Clear inspection panel when entering placement mode
+        if (this.inspectPanel) {
+            this.uiLayer.removeChild(this.inspectPanel);
+            this.inspectPanel.destroy({ children: true });
+            this.inspectPanel = null;
+        }
+        this.rangeGraphics.clear();
     }
 
     togglePause() {
@@ -1265,5 +1399,594 @@ export class GameECS {
         overlay.on('pointerdown', () => {
             window.location.reload();
         });
+    }
+
+    // ========== Help Overlay ==========
+
+    toggleHelpOverlay() {
+        if (this.helpOverlayVisible) {
+            this.hideHelpOverlay();
+        } else {
+            this.showHelpOverlay();
+        }
+    }
+
+    showHelpOverlay() {
+        if (this.helpOverlay) return;
+
+        this.helpOverlayVisible = true;
+        this.helpOverlay = new Container();
+
+        // Semi-transparent background
+        const bg = new Graphics();
+        bg.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+            .fill({ color: 0x000000, alpha: 0.85 });
+        bg.eventMode = 'static';
+        bg.on('pointerdown', () => this.hideHelpOverlay());
+        this.helpOverlay.addChild(bg);
+
+        // Panel
+        const panelWidth = 280;
+        const panelHeight = 320;
+        const panelX = (CANVAS_WIDTH - panelWidth) / 2;
+        const panelY = (CANVAS_HEIGHT - panelHeight) / 2;
+
+        const panel = new Graphics();
+        panel.roundRect(panelX, panelY, panelWidth, panelHeight, 12)
+            .fill({ color: 0x1a1a2e, alpha: 0.98 })
+            .stroke({ color: 0x4488ff, width: 2 });
+        this.helpOverlay.addChild(panel);
+
+        // Title
+        const title = new Text({
+            text: 'Keyboard Shortcuts',
+            style: { fontFamily: 'monospace', fontSize: 18, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        title.anchor.set(0.5, 0);
+        title.position.set(CANVAS_WIDTH / 2, panelY + 15);
+        this.helpOverlay.addChild(title);
+
+        // Shortcuts list
+        const shortcuts = [
+            ['1-4', 'Select tower type'],
+            ['Space/Enter', 'Start next wave'],
+            ['P', 'Toggle auto-wave pause'],
+            ['Escape', 'Deselect/cancel'],
+            ['Right-click', 'Deselect all'],
+            ['Scroll wheel', 'Upgrade hovered turret'],
+            ['? or H', 'Toggle this help'],
+        ];
+
+        let yOffset = panelY + 55;
+        for (const [key, action] of shortcuts) {
+            const keyBg = new Graphics();
+            keyBg.roundRect(panelX + 15, yOffset, 80, 26, 4)
+                .fill(0x333355);
+            this.helpOverlay.addChild(keyBg);
+
+            const keyText = new Text({
+                text: key,
+                style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffcc00', fontWeight: 'bold' }
+            });
+            keyText.anchor.set(0.5, 0.5);
+            keyText.position.set(panelX + 55, yOffset + 13);
+            this.helpOverlay.addChild(keyText);
+
+            const actionText = new Text({
+                text: action,
+                style: { fontFamily: 'monospace', fontSize: 12, fill: '#cccccc' }
+            });
+            actionText.position.set(panelX + 105, yOffset + 5);
+            this.helpOverlay.addChild(actionText);
+
+            yOffset += 34;
+        }
+
+        // Close button
+        const closeBtn = new Container();
+        closeBtn.position.set(panelX + panelWidth - 30, panelY + 8);
+        const closeBg = new Graphics();
+        closeBg.circle(0, 0, 12).fill(0x663333);
+        closeBtn.addChild(closeBg);
+        const closeX = new Text({
+            text: 'X',
+            style: { fontFamily: 'monospace', fontSize: 14, fill: '#ff6666', fontWeight: 'bold' }
+        });
+        closeX.anchor.set(0.5);
+        closeBtn.addChild(closeX);
+        closeBtn.eventMode = 'static';
+        closeBtn.cursor = 'pointer';
+        closeBtn.hitArea = new Rectangle(-12, -12, 24, 24);
+        closeBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.hideHelpOverlay();
+        });
+        this.helpOverlay.addChild(closeBtn);
+
+        this.uiLayer.addChild(this.helpOverlay);
+    }
+
+    hideHelpOverlay() {
+        if (this.helpOverlay) {
+            this.uiLayer.removeChild(this.helpOverlay);
+            this.helpOverlay.destroy({ children: true });
+            this.helpOverlay = null;
+        }
+        this.helpOverlayVisible = false;
+    }
+
+    // ========== Settings Menu ==========
+
+    toggleSettingsMenu() {
+        if (this.settingsMenuVisible) {
+            this.hideSettingsMenu();
+        } else {
+            this.showSettingsMenu();
+        }
+    }
+
+    showSettingsMenu() {
+        if (this.settingsMenu) return;
+
+        this.settingsMenuVisible = true;
+        this.settingsMenu = new Container();
+
+        // Semi-transparent background
+        const bg = new Graphics();
+        bg.rect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+            .fill({ color: 0x000000, alpha: 0.85 });
+        bg.eventMode = 'static';
+        bg.on('pointerdown', () => this.hideSettingsMenu());
+        this.settingsMenu.addChild(bg);
+
+        // Panel
+        const panelWidth = 320;
+        const panelHeight = 420;
+        const panelX = (CANVAS_WIDTH - panelWidth) / 2;
+        const panelY = (CANVAS_HEIGHT - panelHeight) / 2;
+
+        const panel = new Graphics();
+        panel.roundRect(panelX, panelY, panelWidth, panelHeight, 12)
+            .fill({ color: 0x1a1a2e, alpha: 0.98 })
+            .stroke({ color: 0x44aa44, width: 2 });
+        panel.eventMode = 'static';
+        panel.on('pointerdown', (e: FederatedPointerEvent) => e.stopPropagation());
+        this.settingsMenu.addChild(panel);
+
+        // Title
+        const title = new Text({
+            text: 'Settings',
+            style: { fontFamily: 'monospace', fontSize: 20, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        title.anchor.set(0.5, 0);
+        title.position.set(CANVAS_WIDTH / 2, panelY + 15);
+        this.settingsMenu.addChild(title);
+
+        let yOffset = panelY + 55;
+        const labelStyle = { fontFamily: 'monospace', fontSize: 13, fill: '#cccccc' };
+        const valueStyle = { fontFamily: 'monospace', fontSize: 13, fill: '#ffcc00' };
+
+        // Spawn Rate Slider
+        this.addSettingsRow('Spawn Rate:', `${this.settings.spawnRateMultiplier.toFixed(1)}x`, panelX, yOffset);
+        this.addSlider(panelX + 180, yOffset, 120, this.settings.spawnRateMultiplier, 0.5, 2.0, (val) => {
+            this.settings.spawnRateMultiplier = Math.round(val * 10) / 10;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        // Auto-Wave Toggle
+        this.addSettingsRow('Auto-Wave:', this.settings.autoWaveEnabled ? 'ON' : 'OFF', panelX, yOffset);
+        this.addToggle(panelX + 250, yOffset, this.settings.autoWaveEnabled, (val) => {
+            this.settings.autoWaveEnabled = val;
+            this.autoWaveEnabled = val;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        // Auto-Wave Delay Slider
+        this.addSettingsRow('Wave Delay:', `${(this.settings.autoWaveDelay / 1000).toFixed(1)}s`, panelX, yOffset);
+        this.addSlider(panelX + 180, yOffset, 120, this.settings.autoWaveDelay, 1000, 5000, (val) => {
+            this.settings.autoWaveDelay = Math.round(val / 100) * 100;
+            this.autoWaveTimer = this.settings.autoWaveDelay;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        // FPS Counter Toggle
+        this.addSettingsRow('FPS Counter:', this.settings.showFPS ? 'ON' : 'OFF', panelX, yOffset);
+        this.addToggle(panelX + 250, yOffset, this.settings.showFPS, (val) => {
+            this.settings.showFPS = val;
+            this.updateDebugDisplays();
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        // Entity Count Toggle
+        this.addSettingsRow('Entity Count:', this.settings.showEntityCount ? 'ON' : 'OFF', panelX, yOffset);
+        this.addToggle(panelX + 250, yOffset, this.settings.showEntityCount, (val) => {
+            this.settings.showEntityCount = val;
+            this.updateDebugDisplays();
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        // Difficulty Dropdown
+        this.addSettingsRow('Difficulty:', this.settings.difficulty.toUpperCase(), panelX, yOffset);
+        this.addDifficultyButtons(panelX + 20, yOffset + 25, (diff) => {
+            this.settings.difficulty = diff;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 75;
+
+        // Sound/Music Toggles (future-proofing)
+        this.addSettingsRow('Sound:', this.settings.soundEnabled ? 'ON' : 'OFF', panelX, yOffset);
+        this.addToggle(panelX + 250, yOffset, this.settings.soundEnabled, (val) => {
+            this.settings.soundEnabled = val;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 40;
+
+        this.addSettingsRow('Music:', this.settings.musicEnabled ? 'ON' : 'OFF', panelX, yOffset);
+        this.addToggle(panelX + 250, yOffset, this.settings.musicEnabled, (val) => {
+            this.settings.musicEnabled = val;
+            this.refreshSettingsMenu();
+        });
+        yOffset += 50;
+
+        // Reset Game Button
+        const resetBtn = new Container();
+        resetBtn.position.set(panelX + panelWidth / 2, yOffset);
+        const resetBg = new Graphics();
+        resetBg.roundRect(-60, -15, 120, 30, 6).fill(0x663333);
+        resetBtn.addChild(resetBg);
+        const resetText = new Text({
+            text: 'Reset Game',
+            style: { fontFamily: 'monospace', fontSize: 14, fill: '#ff6666', fontWeight: 'bold' }
+        });
+        resetText.anchor.set(0.5);
+        resetBtn.addChild(resetText);
+        resetBtn.eventMode = 'static';
+        resetBtn.cursor = 'pointer';
+        resetBtn.hitArea = new Rectangle(-60, -15, 120, 30);
+        resetBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            saveSettings(this.settings);
+            window.location.reload();
+        });
+        this.settingsMenu.addChild(resetBtn);
+
+        // Close button
+        const closeBtn = new Container();
+        closeBtn.position.set(panelX + panelWidth - 30, panelY + 8);
+        const closeBg = new Graphics();
+        closeBg.circle(0, 0, 12).fill(0x336633);
+        closeBtn.addChild(closeBg);
+        const closeX = new Text({
+            text: 'X',
+            style: { fontFamily: 'monospace', fontSize: 14, fill: '#66ff66', fontWeight: 'bold' }
+        });
+        closeX.anchor.set(0.5);
+        closeBtn.addChild(closeX);
+        closeBtn.eventMode = 'static';
+        closeBtn.cursor = 'pointer';
+        closeBtn.hitArea = new Rectangle(-12, -12, 24, 24);
+        closeBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.hideSettingsMenu();
+        });
+        this.settingsMenu.addChild(closeBtn);
+
+        this.uiLayer.addChild(this.settingsMenu);
+    }
+
+    private addSettingsRow(label: string, value: string, panelX: number, y: number) {
+        const labelText = new Text({
+            text: label,
+            style: { fontFamily: 'monospace', fontSize: 13, fill: '#cccccc' }
+        });
+        labelText.position.set(panelX + 20, y);
+        this.settingsMenu!.addChild(labelText);
+
+        const valueText = new Text({
+            text: value,
+            style: { fontFamily: 'monospace', fontSize: 13, fill: '#ffcc00' }
+        });
+        valueText.position.set(panelX + 130, y);
+        this.settingsMenu!.addChild(valueText);
+    }
+
+    private addSlider(x: number, y: number, width: number, value: number, min: number, max: number, onChange: (val: number) => void) {
+        const track = new Graphics();
+        track.roundRect(x, y + 5, width, 10, 5).fill(0x333355);
+        this.settingsMenu!.addChild(track);
+
+        const fillWidth = ((value - min) / (max - min)) * width;
+        const fill = new Graphics();
+        fill.roundRect(x, y + 5, fillWidth, 10, 5).fill(0x4488ff);
+        this.settingsMenu!.addChild(fill);
+
+        const handle = new Graphics();
+        const handleX = x + fillWidth;
+        handle.circle(handleX, y + 10, 8).fill(0xffffff);
+        this.settingsMenu!.addChild(handle);
+
+        // Make track interactive
+        track.eventMode = 'static';
+        track.cursor = 'pointer';
+        track.hitArea = new Rectangle(x, y, width, 20);
+        track.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            const localX = e.globalX / ((this.app as any).gameScale || 1) - x;
+            const newVal = min + (localX / width) * (max - min);
+            onChange(Math.max(min, Math.min(max, newVal)));
+        });
+    }
+
+    private addToggle(x: number, y: number, value: boolean, onChange: (val: boolean) => void) {
+        const toggle = new Container();
+        toggle.position.set(x, y);
+
+        const bg = new Graphics();
+        bg.roundRect(0, 0, 50, 24, 12).fill(value ? 0x44aa44 : 0x444466);
+        toggle.addChild(bg);
+
+        const handle = new Graphics();
+        handle.circle(value ? 38 : 12, 12, 10).fill(0xffffff);
+        toggle.addChild(handle);
+
+        toggle.eventMode = 'static';
+        toggle.cursor = 'pointer';
+        toggle.hitArea = new Rectangle(0, 0, 50, 24);
+        toggle.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            onChange(!value);
+        });
+
+        this.settingsMenu!.addChild(toggle);
+    }
+
+    private addDifficultyButtons(x: number, y: number, onChange: (diff: 'easy' | 'normal' | 'hard') => void) {
+        const difficulties: Array<'easy' | 'normal' | 'hard'> = ['easy', 'normal', 'hard'];
+        const colors = { easy: 0x44aa44, normal: 0x4488ff, hard: 0xaa4444 };
+
+        difficulties.forEach((diff, i) => {
+            const btn = new Container();
+            btn.position.set(x + i * 95, y);
+
+            const isSelected = this.settings.difficulty === diff;
+            const bg = new Graphics();
+            bg.roundRect(0, 0, 85, 28, 6).fill(isSelected ? colors[diff] : 0x333344);
+            if (isSelected) {
+                bg.roundRect(0, 0, 85, 28, 6).stroke({ color: 0xffffff, width: 2 });
+            }
+            btn.addChild(bg);
+
+            const text = new Text({
+                text: diff.toUpperCase(),
+                style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffffff', fontWeight: isSelected ? 'bold' : 'normal' }
+            });
+            text.anchor.set(0.5);
+            text.position.set(42.5, 14);
+            btn.addChild(text);
+
+            btn.eventMode = 'static';
+            btn.cursor = 'pointer';
+            btn.hitArea = new Rectangle(0, 0, 85, 28);
+            btn.on('pointerdown', (e: FederatedPointerEvent) => {
+                e.stopPropagation();
+                onChange(diff);
+            });
+
+            this.settingsMenu!.addChild(btn);
+        });
+    }
+
+    private refreshSettingsMenu() {
+        saveSettings(this.settings);
+        if (this.settingsMenu) {
+            this.uiLayer.removeChild(this.settingsMenu);
+            this.settingsMenu.destroy({ children: true });
+            this.settingsMenu = null;
+        }
+        this.showSettingsMenu();
+    }
+
+    hideSettingsMenu() {
+        if (this.settingsMenu) {
+            saveSettings(this.settings);
+            this.uiLayer.removeChild(this.settingsMenu);
+            this.settingsMenu.destroy({ children: true });
+            this.settingsMenu = null;
+        }
+        this.settingsMenuVisible = false;
+    }
+
+    private updateDebugDisplays() {
+        // Create or remove FPS display
+        if (this.settings.showFPS && !this.fpsText) {
+            this.fpsText = new Text({
+                text: 'FPS: --',
+                style: { fontFamily: 'monospace', fontSize: 12, fill: '#88ff88' }
+            });
+            this.fpsText.position.set(CANVAS_WIDTH - 70, 3);
+            this.uiLayer.addChild(this.fpsText);
+        } else if (!this.settings.showFPS && this.fpsText) {
+            this.uiLayer.removeChild(this.fpsText);
+            this.fpsText.destroy();
+            this.fpsText = null;
+        }
+
+        // Create or remove entity count display
+        if (this.settings.showEntityCount && !this.entityText) {
+            this.entityText = new Text({
+                text: 'E:0 P:0 T:0',
+                style: { fontFamily: 'monospace', fontSize: 12, fill: '#88ff88' }
+            });
+            this.entityText.position.set(CANVAS_WIDTH - 140, 35);
+            this.uiLayer.addChild(this.entityText);
+        } else if (!this.settings.showEntityCount && this.entityText) {
+            this.uiLayer.removeChild(this.entityText);
+            this.entityText.destroy();
+            this.entityText = null;
+        }
+    }
+
+    // ========== Turret Inspection Panel ==========
+
+    buildInspectPanel(emitter: Emitter): Container {
+        const panel = new Container();
+        const def = EMITTER_DEFS[emitter.data_.type];
+        const mult = getUpgradeMultiplier(emitter.data_.level);
+
+        // Background
+        const bg = new Graphics();
+        bg.roundRect(0, 0, 180, 240, 8)
+            .fill({ color: 0x1a1a2e, alpha: 0.95 })
+            .stroke({ color: def.color, width: 2 });
+        bg.eventMode = 'static';
+        bg.on('pointerdown', (e: FederatedPointerEvent) => e.stopPropagation());
+        panel.addChild(bg);
+
+        // Title
+        const typeName = emitter.data_.type.charAt(0).toUpperCase() + emitter.data_.type.slice(1);
+        const title = new Text({
+            text: `${typeName} Cannon`,
+            style: { fontFamily: 'monospace', fontSize: 14, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        title.position.set(10, 10);
+        panel.addChild(title);
+
+        const levelText = new Text({
+            text: `Lv ${emitter.data_.level + 1}`,
+            style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffcc00' }
+        });
+        levelText.position.set(140, 12);
+        panel.addChild(levelText);
+
+        // Stats
+        let y = 38;
+        const stats = [
+            ['DMG', def.damage, mult.damage],
+            ['RNG', def.range, mult.range],
+            ['RPS', def.fireRate, mult.fireRate],
+            ['KNK', def.knockbackForce, mult.knockback],
+            ['Pierce', def.particlePierce, 1],
+        ];
+
+        for (const [label, base, multiplier] of stats) {
+            const effective = (base as number) * (multiplier as number);
+            const statText = new Text({
+                text: `${label}: ${base} x ${(multiplier as number).toFixed(2)} = ${effective.toFixed(1)}`,
+                style: { fontFamily: 'monospace', fontSize: 10, fill: '#aaaaaa' }
+            });
+            statText.position.set(10, y);
+            panel.addChild(statText);
+            y += 18;
+        }
+
+        // Special effects
+        y += 5;
+        let specialText = '';
+        if (def.dotDamage) specialText = `DOT: ${def.dotDamage}/s for ${def.dotDuration}s`;
+        if (def.chainCount) specialText = `Chain: ${def.chainCount} targets`;
+        if (def.slowFactor) specialText = `Slow: ${(1 - def.slowFactor) * 100}% for ${def.slowDuration}s`;
+        if (def.puddleDuration) specialText += (specialText ? '\n' : '') + `Puddle: ${def.puddleDuration}s`;
+
+        if (specialText) {
+            const special = new Text({
+                text: specialText,
+                style: { fontFamily: 'monospace', fontSize: 10, fill: '#88ccff' }
+            });
+            special.position.set(10, y);
+            panel.addChild(special);
+            y += specialText.includes('\n') ? 30 : 18;
+        }
+
+        // Upgrade button
+        y += 5;
+        const upgradeCost = getUpgradeCost(emitter.data_.level);
+        const canAfford = this.state.gold >= upgradeCost;
+
+        const upgradeBtn = new Container();
+        upgradeBtn.position.set(10, y);
+        const upgradeBg = new Graphics();
+        upgradeBg.roundRect(0, 0, 75, 28, 6).fill(canAfford ? 0x44aa44 : 0x333344);
+        upgradeBtn.addChild(upgradeBg);
+        const upgradeBtnText = new Text({
+            text: `+1 $${upgradeCost}`,
+            style: { fontFamily: 'monospace', fontSize: 11, fill: canAfford ? '#ffffff' : '#666666', fontWeight: 'bold' }
+        });
+        upgradeBtnText.anchor.set(0.5);
+        upgradeBtnText.position.set(37.5, 14);
+        upgradeBtn.addChild(upgradeBtnText);
+
+        if (canAfford) {
+            upgradeBtn.eventMode = 'static';
+            upgradeBtn.cursor = 'pointer';
+            upgradeBtn.hitArea = new Rectangle(0, 0, 75, 28);
+            upgradeBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+                e.stopPropagation();
+                this.upgradeEmitter(emitter);
+                // Refresh panel
+                this.selectEmitter(emitter.data_.id);
+            });
+        }
+        panel.addChild(upgradeBtn);
+
+        // Sell button
+        const sellValue = emitter.getSellValue();
+        const sellBtn = new Container();
+        sellBtn.position.set(95, y);
+        const sellBg = new Graphics();
+        sellBg.roundRect(0, 0, 75, 28, 6).fill(0xaa4444);
+        sellBtn.addChild(sellBg);
+        const sellBtnText = new Text({
+            text: `Sell $${sellValue}`,
+            style: { fontFamily: 'monospace', fontSize: 11, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        sellBtnText.anchor.set(0.5);
+        sellBtnText.position.set(37.5, 14);
+        sellBtn.addChild(sellBtnText);
+
+        sellBtn.eventMode = 'static';
+        sellBtn.cursor = 'pointer';
+        sellBtn.hitArea = new Rectangle(0, 0, 75, 28);
+        sellBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.sellEmitter(emitter);
+        });
+        panel.addChild(sellBtn);
+
+        // Position panel near turret, clamped to screen
+        let panelX = emitter.x + CELL_SIZE;
+        let panelY = emitter.y - 50;
+        panelX = Math.min(panelX, CANVAS_WIDTH - 190);
+        panelX = Math.max(10, panelX);
+        panelY = Math.max(UI_TOP_HEIGHT + 10, Math.min(panelY, GAME_HEIGHT + UI_TOP_HEIGHT - 250));
+        panel.position.set(panelX, panelY);
+
+        return panel;
+    }
+
+    drawRangeRing(emitter: Emitter) {
+        const def = EMITTER_DEFS[emitter.data_.type];
+        const range = emitter.getRange();
+
+        this.rangeGraphics.clear();
+        this.rangeGraphics.circle(emitter.x, emitter.y, range)
+            .fill({ color: def.color, alpha: 0.15 })
+            .stroke({ color: def.color, alpha: 0.5, width: 2 });
+    }
+
+    sellEmitter(emitter: Emitter): void {
+        const sellValue = emitter.getSellValue();
+        this.occupiedCells.delete(`${emitter.data_.gridX},${emitter.data_.gridY}`);
+        this.emitters = this.emitters.filter(e => e !== emitter);
+        this.emitterLayer.removeChild(emitter);
+        this.state.gold += sellValue;
+
+        if (this.state.selectedEmitterId === emitter.data_.id) {
+            this.selectEmitter(null);
+        }
     }
 }

@@ -54,6 +54,7 @@ export interface EmitterData {
     cooldown: number;
     angle: number;              // current aim direction
     targetId: number | null;
+    totalInvestment: number;    // tracks base cost + all upgrade costs for sell value
 }
 
 export interface EnemyData {

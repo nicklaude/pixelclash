@@ -26,6 +26,7 @@ export class Emitter extends Container {
         const pixelY = gridY * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
         this.position.set(pixelX, pixelY);
 
+        const def = EMITTER_DEFS[type];
         this.data_ = {
             id,
             type,
@@ -35,9 +36,9 @@ export class Emitter extends Container {
             cooldown: 0,
             angle: 0,
             targetId: null,
+            totalInvestment: def.cost,  // Initialize with base cost
         };
 
-        const def = EMITTER_DEFS[type];
         const size = CELL_SIZE * 0.7;
 
         // Range circle (behind everything)
@@ -168,8 +169,8 @@ export class Emitter extends Container {
     }
 
     getSellValue(): number {
-        const def = EMITTER_DEFS[this.data_.type];
-        return Math.floor(def.cost * 0.6 * (1 + this.data_.level * 0.3));
+        // 25% refund of total investment (base cost + all upgrades)
+        return Math.floor(this.data_.totalInvestment * 0.25);
     }
 
     private updateRangeCircle() {
