@@ -177,15 +177,19 @@ export const EMITTER_TYPE_WATER = 0;
 export const EMITTER_TYPE_FIRE = 1;
 export const EMITTER_TYPE_ELECTRIC = 2;
 export const EMITTER_TYPE_GOO = 3;
+export const EMITTER_TYPE_SNIPER = 4;
+export const EMITTER_TYPE_SPLASH = 5;
 
 export const EMITTER_TYPE_MAP: Record<EmitterType, number> = {
     water: EMITTER_TYPE_WATER,
     fire: EMITTER_TYPE_FIRE,
     electric: EMITTER_TYPE_ELECTRIC,
     goo: EMITTER_TYPE_GOO,
+    sniper: EMITTER_TYPE_SNIPER,
+    splash: EMITTER_TYPE_SPLASH,
 };
 
-export const EMITTER_TYPE_REVERSE: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
+export const EMITTER_TYPE_REVERSE: EmitterType[] = ['water', 'fire', 'electric', 'goo', 'sniper', 'splash'];
 
 for (const [typeName, def] of Object.entries(EMITTER_DEFS)) {
     const typeId = EMITTER_TYPE_MAP[typeName as EmitterType];
@@ -225,7 +229,7 @@ for (const [typeName, def] of Object.entries(EMITTER_DEFS)) {
  * Precomputed enemy flags by type ID.
  * Use: ENEMY_FLAGS[typeId] to get default flags for an enemy type.
  */
-export const ENEMY_FLAGS = new Uint32Array(6);
+export const ENEMY_FLAGS = new Uint32Array(8);  // 8 enemy types: grunt, fast, tank, shielded, splitter, boss, healer, cloaked
 for (let i = 0; i < ENEMY_ARCHETYPES.length; i++) {
     if (ENEMY_ARCHETYPES[i]) {
         ENEMY_FLAGS[i] = ENEMY_ARCHETYPES[i].flags;
@@ -235,7 +239,7 @@ for (let i = 0; i < ENEMY_ARCHETYPES.length; i++) {
 /**
  * Precomputed projectile flags by type ID.
  */
-export const PROJECTILE_FLAGS = new Uint32Array(4);
+export const PROJECTILE_FLAGS = new Uint32Array(6);  // 6 projectile types: water, fire, electric, goo, sniper, splash
 for (let i = 0; i < PROJECTILE_ARCHETYPES.length; i++) {
     if (PROJECTILE_ARCHETYPES[i]) {
         PROJECTILE_FLAGS[i] = PROJECTILE_ARCHETYPES[i].flags;
@@ -245,7 +249,7 @@ for (let i = 0; i < PROJECTILE_ARCHETYPES.length; i++) {
 /**
  * Precomputed emitter flags by type ID.
  */
-export const EMITTER_FLAGS = new Uint32Array(4);
+export const EMITTER_FLAGS = new Uint32Array(6);  // 6 emitter types: water, fire, electric, goo, sniper, splash
 for (let i = 0; i < EMITTER_ARCHETYPES.length; i++) {
     if (EMITTER_ARCHETYPES[i]) {
         EMITTER_FLAGS[i] = EMITTER_ARCHETYPES[i].flags;
