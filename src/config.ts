@@ -1,7 +1,7 @@
 import { EmitterDef, EnemyDef, PathNode, WaveDef } from './types';
 
 // Grid size (in cells)
-export const GRID_SIZE = 16;  // Smaller grid for better fit
+export const GRID_SIZE = 16;  // 16x16 grid
 export const CELL_SIZE = 36;  // pixels per cell
 export const UI_TOP_HEIGHT = 50;
 export const UI_BOTTOM_HEIGHT = 80;
@@ -315,8 +315,8 @@ export const STARTING_HEALTH = 20;
 
 // Particle physics constants
 export const PARTICLE_TRAIL_LENGTH = 8;
-export const MAX_PARTICLES = 500;
-export const MAX_ENEMIES = 100;
+export const MAX_PARTICLES = 2000;  // Increased for ECS performance
+export const MAX_ENEMIES = 2000;    // Increased for ECS performance
 
 // Physics constants
 export const KNOCKBACK_VELOCITY_THRESHOLD = 15;  // Below this, resume path following (lowered so they don't get stuck)

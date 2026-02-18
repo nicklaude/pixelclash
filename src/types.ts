@@ -58,6 +58,7 @@ export interface EmitterData {
     cooldown: number;
     angle: number;              // current aim direction
     targetId: number | null;
+    totalInvestment: number;    // tracks base cost + all upgrade costs for sell value
 }
 
 export interface EnemyData {
@@ -124,4 +125,27 @@ export interface GameState {
     spawnQueue: Array<{ type: EnemyType; spawnAt: number }>;
     gameOver: boolean;
     paused: boolean;
+}
+
+// ============================================================================
+// Tile types (kept for interface compatibility, not used with fixed path)
+// ============================================================================
+
+export type TileType = 'sand' | 'stone' | 'water' | 'nexus' | 'foundation';
+
+// Tile type constants (kept for compatibility)
+export const TILE_SAND = 0;
+export const TILE_STONE = 1;
+export const TILE_WATER = 2;
+export const TILE_NEXUS = 3;
+export const TILE_FOUNDATION = 4;
+
+export interface MapData {
+    tiles: Uint8Array;            // Flattened [y * width + x] grid
+    width: number;
+    height: number;
+    path: Vec2[];                 // World-space waypoints
+    foundationCells: Vec2[];      // Valid turret placement cells
+    nexus: Vec2;                  // Grid coords of nexus
+    spawnPoint: Vec2;             // Grid coords of enemy spawn
 }
