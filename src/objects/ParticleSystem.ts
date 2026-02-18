@@ -58,14 +58,17 @@ export interface DeathParticleData {
     active: boolean;
 }
 
-// Texture cache for particle types
+// Texture cache for particle types - use WHITE base textures for tinting
 const textureCache: Map<string, Texture> = new Map();
 
 /**
- * Generate a particle texture programmatically
+ * Generate a WHITE particle texture for tinting
+ * In PixiJS v8 ParticleContainer, we should use tint property on particles
+ * rather than baking color into texture for better batching
  */
-function generateParticleTexture(app: Application, color: number, size: number, type: 'square' | 'circle' | 'glow' = 'square'): Texture {
-    const key = `${type}-${color.toString(16)}-${size}`;
+function generateParticleTexture(app: Application, size: number, type: 'square' | 'circle' | 'glow' = 'square'): Texture {
+    // Key only by type and size - color will be applied via tint
+    const key = `${type}-${size}`;
     if (textureCache.has(key)) {
         return textureCache.get(key)!;
     }
@@ -75,24 +78,24 @@ function generateParticleTexture(app: Application, color: number, size: number, 
     const totalSize = size + padding * 2;
 
     if (type === 'glow') {
-        // Electric glow effect
+        // Electric glow effect - white base with glow
         graphics.circle(totalSize / 2, totalSize / 2, size)
-            .fill({ color: 0xffffaa, alpha: 0.3 });
+            .fill({ color: 0xffffff, alpha: 0.3 });
         graphics.rect(totalSize / 2 - size / 4, totalSize / 2 - size / 4, size / 2, size / 2)
-            .fill(color);
+            .fill(0xffffff);
     } else if (type === 'circle') {
-        // Circle particle for death effects
+        // Circle particle for death effects - white
         graphics.circle(totalSize / 2, totalSize / 2, size / 2)
-            .fill(color);
+            .fill(0xffffff);
     } else {
-        // Square pixel-style particle
+        // Square pixel-style particle - white base
         graphics.rect(padding, padding, size, size)
-            .fill(color);
-        // Bright center
+            .fill(0xffffff);
+        // Bright center (slightly less bright for contrast when tinted)
         const innerSize = size * 0.5;
         const innerOffset = (size - innerSize) / 2 + padding;
         graphics.rect(innerOffset, innerOffset, innerSize, innerSize)
-            .fill(lightenColor(color, 0.5));
+            .fill(0xeeeeee);
     }
 
     const texture = app.renderer.generateTexture({
@@ -192,9 +195,9 @@ export class ParticleSystem {
             500
         );
 
-        // Generate default textures
-        this.trailTexture = generateParticleTexture(app, 0xffffff, 4, 'square');
-        this.deathTexture = generateParticleTexture(app, 0xffffff, 4, 'circle');
+        // Generate default textures (white base for tinting)
+        this.trailTexture = generateParticleTexture(app, 4, 'square');
+        this.deathTexture = generateParticleTexture(app, 4, 'circle');
     }
 
     /**
@@ -242,14 +245,15 @@ export class ParticleSystem {
         proj.hitEnemies.clear();
         proj.active = true;
 
-        // Create particle with texture
-        const texture = generateParticleTexture(this.app, color, size, type === 'electric' ? 'glow' : 'square');
+        // Create particle with WHITE texture, apply color via tint
+        const texture = generateParticleTexture(this.app, size, type === 'electric' ? 'glow' : 'square');
         proj.particle = new Particle({
             texture,
             x,
             y,
             anchorX: 0.5,
             anchorY: 0.5,
+            tint: color,  // Apply color via tint for proper batching
         });
 
         this.projectileContainer.addParticle(proj.particle);
@@ -280,14 +284,15 @@ export class ParticleSystem {
             particle.maxLife = particle.life;
             particle.active = true;
 
-            // Create pixi particle
-            const texture = generateParticleTexture(this.app, particle.color, Math.ceil(particle.size), 'square');
+            // Create pixi particle with tint for color
+            const texture = generateParticleTexture(this.app, Math.ceil(particle.size), 'square');
             particle.particle = new Particle({
                 texture,
                 x: particle.x,
                 y: particle.y,
                 anchorX: 0.5,
                 anchorY: 0.5,
+                tint: particle.color,  // Apply color via tint
             });
 
             this.deathContainer.addParticle(particle.particle);
@@ -320,8 +325,8 @@ export class ParticleSystem {
                 };
                 proj.trail.unshift(trailPoint);
 
-                // Create trail particle
-                const trailTexture = generateParticleTexture(this.app, proj.color, Math.max(2, proj.size - 1), 'square');
+                // Create trail particle with tint for color
+                const trailTexture = generateParticleTexture(this.app, Math.max(2, proj.size - 1), 'square');
                 const trailParticle = new Particle({
                     texture: trailTexture,
                     x: trailPoint.x,
@@ -329,6 +334,7 @@ export class ParticleSystem {
                     anchorX: 0.5,
                     anchorY: 0.5,
                     alpha: trailPoint.alpha,
+                    tint: proj.color,  // Use same color as projectile
                 });
                 proj.trailParticles.unshift(trailParticle);
                 this.trailContainer.addParticle(trailParticle);
