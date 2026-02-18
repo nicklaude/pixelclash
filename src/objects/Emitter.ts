@@ -113,6 +113,15 @@ export class Emitter extends Container {
         this.updateRangeCircle();
     }
 
+    redraw() {
+        // Update range circle after upgrade
+        this.updateRangeCircle();
+        // Update level text immediately
+        if (this.data_.level > 0) {
+            this.levelText.text = `+${this.data_.level}`;
+        }
+    }
+
     getSellValue(): number {
         const def = EMITTER_DEFS[this.data_.type];
         return Math.floor(def.cost * 0.6 * (1 + this.data_.level * 0.3));

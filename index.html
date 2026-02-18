@@ -29,7 +29,6 @@
             font-family: 'Courier New', monospace;
             touch-action: none;
             overscroll-behavior: none;
-            -webkit-overflow-scrolling: touch;
         }
 
         /* Prevent iOS callout/magnifier */
@@ -175,7 +174,7 @@
             e.preventDefault();
         }, { passive: false });
 
-        // Prevent long-press context menu (iOS Safari callout)
+        // Prevent long-press context menu
         document.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             return false;
