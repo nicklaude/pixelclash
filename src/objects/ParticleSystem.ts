@@ -420,6 +420,7 @@ export class ParticleSystem {
 
     /**
      * Remove a projectile and return it to the pool
+     * Uses swap-remove for O(1) removal instead of O(n) splice
      */
     removeProjectile(proj: ProjectileData): void {
         proj.active = false;
@@ -437,16 +438,22 @@ export class ParticleSystem {
         proj.trailParticles.length = 0;
         proj.trail.length = 0;
 
-        // Remove from active list
+        // Swap-remove from active list: O(1) instead of O(n)
         const idx = this.projectiles.indexOf(proj);
         if (idx !== -1) {
-            this.projectiles.splice(idx, 1);
+            const last = this.projectiles.pop()!;
+            if (idx < this.projectiles.length) {
+                this.projectiles[idx] = last;
+            }
         }
 
         // Return to pool
         this.projectilePool.release(proj);
     }
 
+    /**
+     * Remove a death particle using swap-remove for O(1) removal
+     */
     private removeDeathParticle(p: DeathParticleData): void {
         p.active = false;
 
@@ -455,9 +462,13 @@ export class ParticleSystem {
             p.particle = null;
         }
 
+        // Swap-remove: O(1) instead of O(n)
         const idx = this.deathParticles.indexOf(p);
         if (idx !== -1) {
-            this.deathParticles.splice(idx, 1);
+            const last = this.deathParticles.pop()!;
+            if (idx < this.deathParticles.length) {
+                this.deathParticles[idx] = last;
+            }
         }
 
         this.deathParticlePool.release(p);

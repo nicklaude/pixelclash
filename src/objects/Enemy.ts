@@ -9,6 +9,13 @@ export class Enemy extends Container {
     graphics: Graphics;
     healthBar: Graphics;
 
+    // Track if visual state changed to avoid unnecessary redraws
+    private lastFlashState: boolean = false;
+    private lastDotState: boolean = false;
+    private needsRedraw: boolean = true;
+    private lastHealthPct: number = 1;
+    private needsHealthBarRedraw: boolean = false;
+
     constructor(
         x: number,
         y: number,
@@ -203,6 +210,10 @@ export class Enemy extends Container {
     update(dt: number): boolean {
         const def = ENEMY_DEFS[this.data_.type];
 
+        // Track visual state changes for conditional redraw
+        const wasFlashing = this.lastFlashState;
+        const wasDot = this.lastDotState;
+
         // Flash timer
         if (this.data_.flashTimer > 0) {
             this.data_.flashTimer -= dt;
@@ -212,10 +223,20 @@ export class Enemy extends Container {
         if (this.data_.dotTimer > 0) {
             this.data_.dotTimer -= dt;
             this.data_.health -= this.data_.dotDamage * dt;
+            this.needsHealthBarRedraw = true;  // DOT reduced health
             if (this.data_.health <= 0) {
                 return false;
             }
         }
+
+        // Check if visual state changed
+        const isFlashing = this.data_.flashTimer > 0;
+        const isDot = this.data_.dotTimer > 0;
+        if (isFlashing !== wasFlashing || isDot !== wasDot) {
+            this.needsRedraw = true;
+        }
+        this.lastFlashState = isFlashing;
+        this.lastDotState = isDot;
 
         // Apply friction to knockback velocity
         const frictionFactor = Math.pow(this.data_.friction, dt * 60);
@@ -261,9 +282,18 @@ export class Enemy extends Container {
         // Reset slow factor
         this.data_.slowFactor = 1;
 
-        // Redraw
-        this.draw();
-        this.drawHealthBar();
+        // Only redraw graphics when visual state changes (flash/DOT effects)
+        // Position updates are handled by Container.position - no redraw needed
+        if (this.needsRedraw) {
+            this.draw();
+            this.needsRedraw = false;
+        }
+
+        // Only redraw health bar when health actually changed
+        if (this.needsHealthBarRedraw) {
+            this.drawHealthBar();
+            this.needsHealthBarRedraw = false;
+        }
 
         if (this.data_.health <= 0) {
             return false;
@@ -281,6 +311,8 @@ export class Enemy extends Container {
     takeDamage(damage: number): boolean {
         this.data_.health -= damage;
         this.data_.flashTimer = 0.1;
+        this.needsRedraw = true;  // Flash effect requires redraw
+        this.needsHealthBarRedraw = true;  // Health changed
         return this.data_.health <= 0;
     }
 
@@ -292,6 +324,7 @@ export class Enemy extends Container {
     applyDOT(damage: number, duration: number) {
         this.data_.dotTimer = duration;
         this.data_.dotDamage = damage;
+        this.needsRedraw = true;  // DOT effect requires redraw
     }
 
     reachedEnd(): boolean {

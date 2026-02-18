@@ -10,6 +10,10 @@ export class Emitter extends Container {
     selectionRing: Graphics;
     levelText: Text;
 
+    // Accumulator for frame-rate independent firing
+    // This ensures guns fire reliably even during lag spikes
+    private fireAccumulator: number = 0;
+
     constructor(
         gridX: number,
         gridY: number,
@@ -70,7 +74,9 @@ export class Emitter extends Container {
     }
 
     update(dt: number) {
-        this.data_.cooldown = Math.max(0, this.data_.cooldown - dt);
+        // Accumulate time for frame-rate independent firing
+        // This ensures guns fire reliably even during lag spikes
+        this.fireAccumulator += dt;
 
         // Update level text
         if (this.data_.level > 0) {
@@ -81,14 +87,53 @@ export class Emitter extends Container {
         this.barrel.rotation = this.data_.angle;
     }
 
-    canFire(): boolean {
-        return this.data_.cooldown <= 0;
+    /**
+     * Check if emitter can fire and how many shots should be fired.
+     * Returns the number of shots to fire this frame (usually 0 or 1, but
+     * can be more during lag spikes to catch up).
+     */
+    getFireCount(): number {
+        const def = EMITTER_DEFS[this.data_.type];
+        const mult = getUpgradeMultiplier(this.data_.level);
+        const fireInterval = 1 / (def.fireRate * mult.fireRate);
+
+        // Calculate how many shots should have fired based on accumulated time
+        const shotCount = Math.floor(this.fireAccumulator / fireInterval);
+        return shotCount;
     }
 
+    canFire(): boolean {
+        return this.getFireCount() > 0;
+    }
+
+    /**
+     * Fire the emitter - consumes one shot from the accumulator
+     */
     fire() {
         const def = EMITTER_DEFS[this.data_.type];
         const mult = getUpgradeMultiplier(this.data_.level);
-        this.data_.cooldown = 1 / (def.fireRate * mult.fireRate);
+        const fireInterval = 1 / (def.fireRate * mult.fireRate);
+
+        // Consume one fire interval from accumulator
+        this.fireAccumulator -= fireInterval;
+
+        // Clamp accumulator to prevent runaway catching up
+        // Allow at most 3 shots worth of accumulation
+        const maxAccumulation = fireInterval * 3;
+        if (this.fireAccumulator > maxAccumulation) {
+            this.fireAccumulator = maxAccumulation;
+        }
+    }
+
+    /**
+     * Reset the fire accumulator (e.g., when emitter loses target)
+     */
+    resetFireAccumulator() {
+        const def = EMITTER_DEFS[this.data_.type];
+        const mult = getUpgradeMultiplier(this.data_.level);
+        const fireInterval = 1 / (def.fireRate * mult.fireRate);
+        // Keep partial accumulation but cap it
+        this.fireAccumulator = Math.min(this.fireAccumulator, fireInterval * 0.5);
     }
 
     aimAt(targetX: number, targetY: number) {

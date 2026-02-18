@@ -12,6 +12,7 @@ import { Emitter } from './objects/Emitter';
 import { Projectile } from './objects/Projectile';
 import { Puddle } from './objects/Puddle';
 import { ParticleSystem, ProjectileData } from './objects/ParticleSystem';
+import { SpatialHash } from './SpatialHash';
 
 export class Game {
     app: Application;
@@ -86,6 +87,19 @@ export class Game {
     // Game container (for shake offset)
     gameContainer: Container;
 
+    // Spatial hash for O(1) collision detection instead of O(n*m)
+    enemySpatialHash: SpatialHash<Enemy>;
+    puddleSpatialHash: SpatialHash<Puddle>;
+
+    // Reusable arrays to avoid per-frame allocations
+    private enemiesToRemove: Enemy[] = [];
+    private projectilesToRemove: ProjectileData[] = [];
+    private puddlesToRemove: Puddle[] = [];
+    private legacyProjectilesToRemove: Projectile[] = [];
+
+    // Reusable set for chain lightning
+    private chainHitSet: Set<number> = new Set();
+
     constructor(app: Application) {
         this.app = app;
 
@@ -106,6 +120,11 @@ export class Game {
         // Initialize path
         this.pathCells = getPathCells();
         this.worldPath = PATH.map(p => this.gridToPixel(p.x, p.y));
+
+        // Initialize spatial hashes for efficient collision detection
+        // Cell size of 64 pixels provides good balance for typical entity sizes
+        this.enemySpatialHash = new SpatialHash<Enemy>(64);
+        this.puddleSpatialHash = new SpatialHash<Puddle>(64);
 
         // Create game container (for screen shake)
         this.gameContainer = new Container();
@@ -758,11 +777,13 @@ export class Game {
     }
 
     updateEnemies(dt: number) {
-        const toRemove: Enemy[] = [];
+        // Reuse array to avoid per-frame allocation
+        this.enemiesToRemove.length = 0;
 
         for (const enemy of this.enemies) {
-            // Check puddle slow effects
-            for (const puddle of this.puddles) {
+            // Use spatial hash for puddle checks - O(1) instead of O(puddles)
+            const nearbyPuddles = this.puddleSpatialHash.getNearby(enemy.x, enemy.y);
+            for (const puddle of nearbyPuddles) {
                 if (puddle.containsPoint(enemy.x, enemy.y)) {
                     enemy.data_.slowFactor = Math.min(
                         enemy.data_.slowFactor,
@@ -772,6 +793,9 @@ export class Game {
             }
 
             const alive = enemy.update(dt);
+
+            // Update spatial hash position after movement
+            this.enemySpatialHash.update(enemy);
 
             if (!alive) {
                 if (enemy.reachedEnd()) {
@@ -797,13 +821,23 @@ export class Game {
                         this.shake(0.02, 0.4);
                     }
                 }
-                toRemove.push(enemy);
+                this.enemiesToRemove.push(enemy);
             }
         }
 
-        for (const enemy of toRemove) {
+        // Remove dead enemies using swap-remove pattern for O(1) removal
+        for (const enemy of this.enemiesToRemove) {
             this.enemyLayer.removeChild(enemy);
-            this.enemies = this.enemies.filter(e => e !== enemy);
+            this.enemySpatialHash.remove(enemy);
+
+            // Swap-remove: O(1) instead of O(n) filter
+            const idx = this.enemies.indexOf(enemy);
+            if (idx !== -1) {
+                const last = this.enemies.pop()!;
+                if (idx < this.enemies.length) {
+                    this.enemies[idx] = last;
+                }
+            }
         }
     }
 
@@ -811,33 +845,36 @@ export class Game {
         for (const emitter of this.emitters) {
             emitter.update(dt);
 
-            if (!emitter.canFire()) continue;
-
             const def = EMITTER_DEFS[emitter.data_.type];
             const range = emitter.getRange();
-            const emitterPos = { x: emitter.x, y: emitter.y };
-
-            // Find target
+            // Find target using spatial hash for nearby enemies
+            // This significantly reduces checks when there are many enemies
             let bestTarget: Enemy | null = null;
-            let bestDist = Infinity;
+            let bestDistSq = range * range;  // Use squared distance to avoid sqrt
 
-            for (const enemy of this.enemies) {
-                const dx = enemy.x - emitterPos.x;
-                const dy = enemy.y - emitterPos.y;
-                const d = Math.sqrt(dx * dx + dy * dy);
+            // First try spatial hash for nearby enemies (fast path)
+            const nearbyEnemies = this.enemySpatialHash.getNearby(emitter.x, emitter.y);
+            for (const enemy of nearbyEnemies) {
+                const dx = enemy.x - emitter.x;
+                const dy = enemy.y - emitter.y;
+                const distSq = dx * dx + dy * dy;
 
-                if (d <= range && d < bestDist) {
-                    bestDist = d;
+                if (distSq <= bestDistSq) {
+                    bestDistSq = distSq;
                     bestTarget = enemy;
                 }
             }
 
-            if (!bestTarget) continue;
+            if (!bestTarget) {
+                // No target - reset accumulator to prevent burst firing when target appears
+                emitter.resetFireAccumulator();
+                continue;
+            }
 
             // Lead targeting
             const target = bestTarget;
-            const dx = target.x - emitterPos.x;
-            const dy = target.y - emitterPos.y;
+            const dx = target.x - emitter.x;
+            const dy = target.y - emitter.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             const timeToHit = dist / def.particleSpeed;
 
@@ -861,12 +898,19 @@ export class Game {
             }
 
             emitter.aimAt(predictX, predictY);
-            emitter.fire();
 
-            // Spawn projectiles
+            // Fire multiple shots if needed to catch up from lag spikes
+            // This ensures guns fire reliably even with frame drops
+            const fireCount = emitter.getFireCount();
             const mult = getUpgradeMultiplier(emitter.data_.level);
-            for (let i = 0; i < def.particlesPerShot; i++) {
-                this.spawnProjectile(emitter, emitter.data_.angle, mult);
+
+            for (let shot = 0; shot < fireCount; shot++) {
+                emitter.fire();
+
+                // Spawn projectiles for this shot
+                for (let i = 0; i < def.particlesPerShot; i++) {
+                    this.spawnProjectile(emitter, emitter.data_.angle, mult);
+                }
             }
         }
     }
@@ -879,34 +923,40 @@ export class Game {
         }
 
         // Fallback to legacy projectile system
-        const toRemove: Projectile[] = [];
+        // Reuse array to avoid per-frame allocation
+        this.legacyProjectilesToRemove.length = 0;
 
         for (const proj of this.projectiles) {
             const alive = proj.update(dt);
 
             if (!alive) {
-                toRemove.push(proj);
+                this.legacyProjectilesToRemove.push(proj);
                 continue;
             }
 
-            // Check collisions
-            for (const enemy of this.enemies) {
+            // Use spatial hash for nearby enemies - O(1) instead of O(enemies)
+            const nearbyEnemies = this.enemySpatialHash.getNearby(proj.x, proj.y);
+
+            for (const enemy of nearbyEnemies) {
                 if (proj.hasHitEnemy(enemy.data_.id)) continue;
 
                 const def = ENEMY_DEFS[enemy.data_.type];
                 const dx = enemy.x - proj.x;
                 const dy = enemy.y - proj.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Use squared distance to avoid sqrt
+                const distSq = dx * dx + dy * dy;
+                const hitRadius = def.size + 6;
 
-                if (dist < def.size + 6) {
+                if (distSq < hitRadius * hitRadius) {
                     proj.registerHit(enemy.data_.id);
 
                     const killed = enemy.takeDamage(proj.data_.damage);
 
                     if (!killed) {
                         // Knockback
-                        const velMag = Math.sqrt(proj.velocity.x ** 2 + proj.velocity.y ** 2);
-                        if (velMag > 0) {
+                        const velMagSq = proj.velocity.x ** 2 + proj.velocity.y ** 2;
+                        if (velMagSq > 0) {
+                            const velMag = Math.sqrt(velMagSq);
                             const nx = proj.velocity.x / velMag;
                             const ny = proj.velocity.y / velMag;
                             enemy.applyKnockback(
@@ -936,24 +986,36 @@ export class Game {
                     }
 
                     if (!proj.isAlive()) {
-                        toRemove.push(proj);
+                        this.legacyProjectilesToRemove.push(proj);
                         break;
                     }
                 }
             }
         }
 
-        for (const proj of toRemove) {
+        // Use swap-remove for O(1) removal instead of filter O(n)
+        for (const proj of this.legacyProjectilesToRemove) {
             this.projectileLayer.removeChild(proj);
-            this.projectiles = this.projectiles.filter(p => p !== proj);
+
+            const idx = this.projectiles.indexOf(proj);
+            if (idx !== -1) {
+                const last = this.projectiles.pop()!;
+                if (idx < this.projectiles.length) {
+                    this.projectiles[idx] = last;
+                }
+            }
         }
     }
 
     /**
      * Optimized projectile update using batched ParticleContainer
+     * Uses spatial hashing for O(1) collision detection instead of O(n*m)
      */
     updateOptimizedProjectiles(dt: number) {
         if (!this.particleSystem) return;
+
+        // Reuse array to avoid per-frame allocation
+        this.projectilesToRemove.length = 0;
 
         // Update particle system physics
         this.particleSystem.update(dt);
@@ -964,24 +1026,29 @@ export class Game {
         for (const proj of projectiles) {
             if (!proj.active) continue;
 
-            // Check collisions with enemies
-            for (const enemy of this.enemies) {
+            // Use spatial hash to only check nearby enemies - O(1) instead of O(enemies)
+            const nearbyEnemies = this.enemySpatialHash.getNearby(proj.x, proj.y);
+
+            for (const enemy of nearbyEnemies) {
                 if (this.particleSystem.hasHitEnemy(proj, enemy.data_.id)) continue;
 
                 const def = ENEMY_DEFS[enemy.data_.type];
                 const dx = enemy.x - proj.x;
                 const dy = enemy.y - proj.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                // Use squared distance to avoid sqrt when possible
+                const distSq = dx * dx + dy * dy;
+                const hitRadius = def.size + 6;
 
-                if (dist < def.size + 6) {
+                if (distSq < hitRadius * hitRadius) {
                     this.particleSystem.registerHit(proj, enemy.data_.id);
 
                     const killed = enemy.takeDamage(proj.damage);
 
                     if (!killed) {
-                        // Knockback
-                        const velMag = Math.sqrt(proj.vx ** 2 + proj.vy ** 2);
-                        if (velMag > 0) {
+                        // Knockback - use squared magnitude comparison
+                        const velMagSq = proj.vx * proj.vx + proj.vy * proj.vy;
+                        if (velMagSq > 0) {
+                            const velMag = Math.sqrt(velMagSq);
                             const nx = proj.vx / velMag;
                             const ny = proj.vy / velMag;
                             enemy.applyKnockback(
@@ -1012,27 +1079,42 @@ export class Game {
 
                     // Check if projectile should be removed
                     if (proj.pierce <= 0) {
-                        this.particleSystem.removeProjectile(proj);
+                        this.projectilesToRemove.push(proj);
                         break;
                     }
                 }
             }
         }
+
+        // Remove dead projectiles
+        for (const proj of this.projectilesToRemove) {
+            this.particleSystem.removeProjectile(proj);
+        }
     }
 
     updatePuddles(dt: number) {
-        const toRemove: Puddle[] = [];
+        // Reuse array to avoid per-frame allocation
+        this.puddlesToRemove.length = 0;
 
         for (const puddle of this.puddles) {
             const alive = puddle.update(dt);
             if (!alive) {
-                toRemove.push(puddle);
+                this.puddlesToRemove.push(puddle);
             }
         }
 
-        for (const puddle of toRemove) {
+        // Use swap-remove for O(1) removal
+        for (const puddle of this.puddlesToRemove) {
             this.puddleLayer.removeChild(puddle);
-            this.puddles = this.puddles.filter(p => p !== puddle);
+            this.puddleSpatialHash.remove(puddle);
+
+            const idx = this.puddles.indexOf(puddle);
+            if (idx !== -1) {
+                const last = this.puddles.pop()!;
+                if (idx < this.puddles.length) {
+                    this.puddles[idx] = last;
+                }
+            }
         }
     }
 
@@ -1094,6 +1176,8 @@ export class Game {
 
         this.enemies.push(enemy);
         this.enemyLayer.addChild(enemy);
+        // Add to spatial hash for efficient collision detection
+        this.enemySpatialHash.insert(enemy);
     }
 
     spawnProjectile(emitter: Emitter, angle: number, mult: { damage: number; knockback: number }) {
@@ -1184,28 +1268,34 @@ export class Game {
 
     chainLightning(startEnemy: Enemy, damage: number, maxChains: number) {
         let lastTarget = startEnemy;
-        const hit = new Set<number>([startEnemy.data_.id]);
+        // Reuse set to avoid allocation
+        this.chainHitSet.clear();
+        this.chainHitSet.add(startEnemy.data_.id);
+
+        const chainRange = 4 * CELL_SIZE;
 
         for (let i = 0; i < maxChains; i++) {
             let nearest: Enemy | null = null;
-            let nearestDist = 4 * CELL_SIZE;
+            let nearestDistSq = chainRange * chainRange;
 
-            for (const enemy of this.enemies) {
-                if (hit.has(enemy.data_.id)) continue;
+            // Use spatial hash for nearby enemies
+            const nearbyEnemies = this.enemySpatialHash.getNearby(lastTarget.x, lastTarget.y);
+            for (const enemy of nearbyEnemies) {
+                if (this.chainHitSet.has(enemy.data_.id)) continue;
 
                 const dx = enemy.x - lastTarget.x;
                 const dy = enemy.y - lastTarget.y;
-                const d = Math.sqrt(dx * dx + dy * dy);
+                const distSq = dx * dx + dy * dy;
 
-                if (d < nearestDist) {
-                    nearestDist = d;
+                if (distSq < nearestDistSq) {
+                    nearestDistSq = distSq;
                     nearest = enemy;
                 }
             }
 
             if (!nearest) break;
 
-            hit.add(nearest.data_.id);
+            this.chainHitSet.add(nearest.data_.id);
 
             this.chainEffects.push({
                 from: { x: lastTarget.x, y: lastTarget.y },
@@ -1220,11 +1310,16 @@ export class Game {
 
     createOrExpandPuddle(x: number, y: number, emitterDef: any) {
         let expanded = false;
-        for (const puddle of this.puddles) {
+
+        // Use spatial hash to find nearby puddles - O(1) instead of O(puddles)
+        const nearbyPuddles = this.puddleSpatialHash.getNearby(x, y);
+        for (const puddle of nearbyPuddles) {
             const dx = puddle.data_.x - x;
             const dy = puddle.data_.y - y;
             if (dx * dx + dy * dy < 400) {
                 puddle.expand(0.5, emitterDef.puddleDuration, 2, 40);
+                // Update spatial hash if puddle position might have changed
+                this.puddleSpatialHash.update(puddle);
                 expanded = true;
                 break;
             }
@@ -1242,6 +1337,8 @@ export class Game {
             );
             this.puddles.push(puddle);
             this.puddleLayer.addChild(puddle);
+            // Add to spatial hash for efficient collision detection
+            this.puddleSpatialHash.insert(puddle);
         }
     }
 
