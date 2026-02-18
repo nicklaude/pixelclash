@@ -48,6 +48,8 @@ export const EF_FLASHING = 1 << 8;
 export const EF_DIRTY = 1 << 9;
 /** Needs health bar redraw */
 export const EF_HEALTH_DIRTY = 1 << 10;
+/** Currently drowning in water */
+export const EF_DROWNING = 1 << 11;
 
 // ============================================================================
 // Projectile Flag Bits
@@ -91,6 +93,8 @@ export const ENEMY_TYPE_TANK = 2;
 export const ENEMY_TYPE_SHIELDED = 3;
 export const ENEMY_TYPE_SPLITTER = 4;
 export const ENEMY_TYPE_BOSS = 5;
+export const ENEMY_TYPE_HEALER = 6;
+export const ENEMY_TYPE_CLOAKED = 7;
 
 export const ENEMY_TYPE_MAP: Record<EnemyType, number> = {
     grunt: ENEMY_TYPE_GRUNT,
@@ -99,9 +103,11 @@ export const ENEMY_TYPE_MAP: Record<EnemyType, number> = {
     shielded: ENEMY_TYPE_SHIELDED,
     splitter: ENEMY_TYPE_SPLITTER,
     boss: ENEMY_TYPE_BOSS,
+    healer: ENEMY_TYPE_HEALER,
+    cloaked: ENEMY_TYPE_CLOAKED,
 };
 
-export const ENEMY_TYPE_REVERSE: EnemyType[] = ['grunt', 'fast', 'tank', 'shielded', 'splitter', 'boss'];
+export const ENEMY_TYPE_REVERSE: EnemyType[] = ['grunt', 'fast', 'tank', 'shielded', 'splitter', 'boss', 'healer', 'cloaked'];
 
 // ============================================================================
 // Projectile Type IDs
@@ -111,15 +117,19 @@ export const PROJECTILE_TYPE_WATER = 0;
 export const PROJECTILE_TYPE_FIRE = 1;
 export const PROJECTILE_TYPE_ELECTRIC = 2;
 export const PROJECTILE_TYPE_GOO = 3;
+export const PROJECTILE_TYPE_SNIPER = 4;
+export const PROJECTILE_TYPE_SPLASH = 5;
 
 export const PROJECTILE_TYPE_MAP: Record<ParticleType, number> = {
     water: PROJECTILE_TYPE_WATER,
     fire: PROJECTILE_TYPE_FIRE,
     electric: PROJECTILE_TYPE_ELECTRIC,
     goo: PROJECTILE_TYPE_GOO,
+    sniper: PROJECTILE_TYPE_SNIPER,
+    splash: PROJECTILE_TYPE_SPLASH,
 };
 
-export const PROJECTILE_TYPE_REVERSE: ParticleType[] = ['water', 'fire', 'electric', 'goo'];
+export const PROJECTILE_TYPE_REVERSE: ParticleType[] = ['water', 'fire', 'electric', 'goo', 'sniper', 'splash'];
 
 // ============================================================================
 // Enemy Arrays (Structure of Arrays)

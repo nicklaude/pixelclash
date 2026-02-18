@@ -19,6 +19,10 @@ import {
     STARTING_GOLD, STARTING_HEALTH, generateWave, getUpgradeCost,
     AUTO_WAVE_DELAY, CANVAS_WIDTH, CANVAS_HEIGHT
 } from './config';
+import {
+    generateMap, MapData, TILE_COLORS, TERRAIN_CONFIG,
+    TILE_GRASS, TILE_SAND, TILE_STONE, TILE_WATER, TILE_NEXUS, TILE_FOUNDATION
+} from './MapGenerator';
 import { GameState, EmitterType, EnemyType, Vec2, ParticleType } from './types';
 import { Emitter } from './objects/Emitter';
 import { Puddle } from './objects/Puddle';
@@ -43,6 +47,10 @@ import {
     FireResult,
     CollisionEvent,
     EF_SPLITTER,
+    EF_HEAVY,
+    EF_DROWNING,
+    EF_DIRTY,
+    EF_HEALTH_DIRTY,
     PF_DOT, PF_SLOW, PF_CHAIN, PF_PUDDLE,
     ENEMY_TYPE_REVERSE,
     PROJECTILE_TYPE_REVERSE,
@@ -135,6 +143,9 @@ export class GameECS {
     // Settings state
     settings: GameSettings = { ...DEFAULT_SETTINGS };
 
+    // Procedural map data
+    mapData: MapData | null = null;
+
     // Reusable arrays to avoid per-frame allocations
     private reachedEndIndices: number[] = [];
     private dotKilledIndices: number[] = [];
@@ -175,10 +186,21 @@ export class GameECS {
             paused: false,
         };
 
-        // Initialize path using fixed path from config
-        this.pathCells = getPathCells();
-        this.worldPath = PATH.map(p => this.gridToPixel(p.x, p.y));
-        this.world.setWorldPath(this.worldPath);
+        // Generate procedural map
+        this.mapData = generateMap({ gridSize: GRID_SIZE, cellSize: CELL_SIZE });
+        this.world.setMap(this.mapData);
+
+        // Build path cells set from map data
+        this.pathCells = new Set<string>();
+        for (let y = 0; y < GRID_SIZE; y++) {
+            for (let x = 0; x < GRID_SIZE; x++) {
+                const tile = this.mapData.tiles[y * GRID_SIZE + x];
+                if (tile === TILE_SAND) {
+                    this.pathCells.add(`${x},${y}`);
+                }
+            }
+        }
+        this.worldPath = this.mapData.path;
 
         // Initialize spatial hash for puddles
         this.puddleSpatialHash = new SpatialHash<Puddle>(64);
@@ -260,6 +282,16 @@ export class GameECS {
     }
 
     canPlaceEmitter(gx: number, gy: number): boolean {
+        // Use procedural map if available
+        if (this.mapData) {
+            // Must be a foundation cell
+            if (!this.world.isFoundation(gx, gy)) return false;
+            // Cannot place on already occupied cell
+            if (this.occupiedCells.has(`${gx},${gy}`)) return false;
+            return true;
+        }
+
+        // Fallback to legacy behavior
         const key = `${gx},${gy}`;
         // Cannot place on path
         if (this.pathCells.has(key)) return false;
@@ -276,6 +308,13 @@ export class GameECS {
         const g = this.gridGraphics;
         g.clear();
 
+        // Use procedural map if available
+        if (this.mapData) {
+            this.drawProceduralGrid();
+            return;
+        }
+
+        // Fallback to legacy rendering
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let y = 0; y < GRID_SIZE; y++) {
                 const key = `${x},${y}`;
@@ -299,6 +338,101 @@ export class GameECS {
     }
 
     /**
+     * Draw procedural map tiles with visual effects
+     */
+    drawProceduralGrid() {
+        const g = this.gridGraphics;
+        const map = this.mapData!;
+
+        for (let y = 0; y < map.height; y++) {
+            for (let x = 0; x < map.width; x++) {
+                const tile = map.tiles[y * map.width + x];
+
+                // Skip nexus (drawn separately with animation)
+                if (tile === TILE_NEXUS) continue;
+
+                const px = x * CELL_SIZE;
+                const py = y * CELL_SIZE + UI_TOP_HEIGHT;
+
+                let color = TILE_COLORS[tile] || 0x000000;
+
+                // Apply checkerboard tint to grass
+                if (tile === TILE_GRASS) {
+                    const tint = ((x + y) % 2 === 0) ? 1.05 : 0.95;
+                    color = this.tintColor(color, tint);
+                }
+
+                // Draw base tile
+                g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2).fill(color);
+
+                // Stone bevel effect (darker bottom/right edges)
+                if (tile === TILE_STONE) {
+                    const darkColor = this.darkenColor(color, 0.6);
+                    g.rect(px + 1, py + CELL_SIZE - 3, CELL_SIZE - 2, 2).fill(darkColor);
+                    g.rect(px + CELL_SIZE - 3, py + 1, 2, CELL_SIZE - 2).fill(darkColor);
+                }
+
+                // Foundation corner dots
+                if (tile === TILE_FOUNDATION) {
+                    const dotColor = 0x5a5a4a;
+                    g.circle(px + 5, py + 5, 1.5).fill(dotColor);
+                    g.circle(px + CELL_SIZE - 5, py + 5, 1.5).fill(dotColor);
+                    g.circle(px + 5, py + CELL_SIZE - 5, 1.5).fill(dotColor);
+                    g.circle(px + CELL_SIZE - 5, py + CELL_SIZE - 5, 1.5).fill(dotColor);
+                }
+
+                // Sand path has subtle grain
+                if (tile === TILE_SAND) {
+                    // Add subtle darker spots for texture
+                    if ((x * 7 + y * 13) % 5 === 0) {
+                        const spotX = px + 3 + ((x * 11) % (CELL_SIZE - 6));
+                        const spotY = py + 3 + ((y * 17) % (CELL_SIZE - 6));
+                        g.circle(spotX, spotY, 1).fill(this.darkenColor(color, 0.85));
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Draw water shimmer animation (called each frame)
+     */
+    drawWaterShimmer() {
+        if (!this.mapData) return;
+
+        const g = this.gridGraphics;
+        const map = this.mapData;
+
+        for (let y = 0; y < map.height; y++) {
+            for (let x = 0; x < map.width; x++) {
+                const tile = map.tiles[y * map.width + x];
+                if (tile !== TILE_WATER) continue;
+
+                const px = x * CELL_SIZE;
+                const py = y * CELL_SIZE + UI_TOP_HEIGHT;
+
+                // Animated shimmer band
+                const shimmerPhase = this.nexusPulse * 2 + x * 0.3 + y * 0.2;
+                const shimmerY = py + (Math.sin(shimmerPhase) * 0.5 + 0.5) * (CELL_SIZE - 6) + 3;
+                const shimmerAlpha = 0.2 + Math.sin(shimmerPhase * 1.5) * 0.1;
+
+                g.rect(px + 2, shimmerY, CELL_SIZE - 4, 3)
+                    .fill({ color: 0x88aaff, alpha: shimmerAlpha });
+            }
+        }
+    }
+
+    /**
+     * Tint a color (multiply each channel by factor)
+     */
+    private tintColor(color: number, factor: number): number {
+        const r = Math.min(255, Math.floor(((color >> 16) & 255) * factor));
+        const g = Math.min(255, Math.floor(((color >> 8) & 255) * factor));
+        const b = Math.min(255, Math.floor((color & 255) * factor));
+        return (r << 16) | (g << 8) | b;
+    }
+
+    /**
      * Darken a color by a factor
      */
     private darkenColor(color: number, factor: number): number {
@@ -312,8 +446,12 @@ export class GameECS {
         const g = this.nexusGraphics;
         g.clear();
 
-        const cx = NEXUS_X * CELL_SIZE + CELL_SIZE / 2;
-        const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
+        // Use procedural map nexus position if available
+        const nexusX = this.mapData ? this.mapData.nexus.x : NEXUS_X;
+        const nexusY = this.mapData ? this.mapData.nexus.y : NEXUS_Y;
+
+        const cx = nexusX * CELL_SIZE + CELL_SIZE / 2;
+        const cy = nexusY * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
 
         this.nexusPulse += 0.05;
         const pulse = 0.7 + Math.sin(this.nexusPulse) * 0.3;
@@ -325,6 +463,11 @@ export class GameECS {
             .fill(0x4488ff);
         g.circle(cx - 3, cy - 3, CELL_SIZE * 0.15)
             .fill(0x88bbff);
+
+        // Draw water shimmer animation (call here since it's animated)
+        if (this.mapData) {
+            this.drawWaterShimmer();
+        }
     }
 
     drawHoverCell() {
@@ -870,6 +1013,11 @@ export class GameECS {
         // Movement system
         updateEnemyMovement(enemies, this.worldPath, dt, this.reachedEndIndices);
 
+        // Water drowning effect (for procedural maps)
+        if (this.mapData) {
+            this.processWaterEffects(dt);
+        }
+
         // Collect deaths
         collectDeaths(enemies, this.dotKilledIndices, this.reachedEndIndices, this.deathResults);
 
@@ -1029,8 +1177,11 @@ export class GameECS {
         const projectiles = this.world.projectiles;
         const enemies = this.world.enemies;
 
-        // Movement
-        updateProjectileMovement(projectiles, dt, this.deadProjectileIndices, this.projectileBounds);
+        // Movement with terrain collision check (stone blocks projectiles)
+        const terrainCheck = this.mapData
+            ? (x: number, y: number) => this.checkProjectileTerrainCollision(x, y)
+            : undefined;
+        updateProjectileMovement(projectiles, dt, this.deadProjectileIndices, this.projectileBounds, terrainCheck);
 
         // Collision detection
         detectCollisions(
@@ -1187,6 +1338,57 @@ export class GameECS {
             e.timer -= dt;
             return e.timer > 0;
         });
+    }
+
+    /**
+     * Process water terrain effects on enemies
+     * Light enemies take drowning DOT, heavy enemies experience drag
+     */
+    processWaterEffects(dt: number) {
+        const enemies = this.world.enemies;
+
+        for (let i = 0; i < enemies.count; i++) {
+            const gx = Math.floor(enemies.x[i] / CELL_SIZE);
+            const gy = Math.floor((enemies.y[i] - UI_TOP_HEIGHT) / CELL_SIZE);
+
+            if (this.world.isWater(gx, gy)) {
+                const isHeavy = (enemies.flags[i] & EF_HEAVY) !== 0;
+
+                if (!isHeavy) {
+                    // Light enemy: rapid drowning damage
+                    enemies.health[i] -= TERRAIN_CONFIG.waterDPS * dt;
+                    enemies.flags[i] |= EF_DROWNING | EF_DIRTY | EF_HEALTH_DIRTY;
+
+                    // Also slow them significantly
+                    enemies.slowFactor[i] = Math.min(
+                        enemies.slowFactor[i],
+                        TERRAIN_CONFIG.waterLightSlowFactor
+                    );
+                } else {
+                    // Heavy enemy: strong drag
+                    enemies.slowFactor[i] = Math.min(
+                        enemies.slowFactor[i],
+                        TERRAIN_CONFIG.waterHeavySlowFactor
+                    );
+                    enemies.flags[i] &= ~EF_DROWNING; // Not drowning
+                }
+            } else {
+                // Not in water - clear drowning flag
+                enemies.flags[i] &= ~EF_DROWNING;
+            }
+        }
+    }
+
+    /**
+     * Check if a projectile hits stone terrain
+     */
+    checkProjectileTerrainCollision(x: number, y: number): boolean {
+        if (!this.mapData) return false;
+
+        const gx = Math.floor(x / CELL_SIZE);
+        const gy = Math.floor((y - UI_TOP_HEIGHT) / CELL_SIZE);
+
+        return this.world.isStone(gx, gy);
     }
 
     updateScreenShake(dt: number) {

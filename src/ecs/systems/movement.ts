@@ -88,14 +88,27 @@ export function updateEnemyMovement(
 }
 
 /**
+ * Terrain collision callback type for projectiles
+ * Returns true if the projectile should be destroyed
+ */
+export type ProjectileTerrainCheck = (x: number, y: number) => boolean;
+
+/**
  * Update projectile positions.
  * Returns array of indices of projectiles that expired or went out of bounds.
+ *
+ * @param projectiles - Projectile arrays
+ * @param dt - Delta time
+ * @param deadIndices - Output array for dead projectile indices
+ * @param bounds - Screen bounds for culling
+ * @param terrainCheck - Optional callback to check terrain collision (returns true if blocked)
  */
 export function updateProjectileMovement(
     projectiles: ProjectileArrays,
     dt: number,
     deadIndices: number[],
-    bounds: { minX: number; maxX: number; minY: number; maxY: number }
+    bounds: { minX: number; maxX: number; minY: number; maxY: number },
+    terrainCheck?: ProjectileTerrainCheck
 ): void {
     deadIndices.length = 0;
 
@@ -107,6 +120,12 @@ export function updateProjectileMovement(
         // Update lifespan
         projectiles.lifespan[i] -= dt;
 
+        // Check terrain collision (stone blocks projectiles)
+        let hitTerrain = false;
+        if (terrainCheck) {
+            hitTerrain = terrainCheck(projectiles.x[i], projectiles.y[i]);
+        }
+
         // Check if dead
         const outOfBounds =
             projectiles.x[i] < bounds.minX ||
@@ -114,7 +133,7 @@ export function updateProjectileMovement(
             projectiles.y[i] < bounds.minY ||
             projectiles.y[i] > bounds.maxY;
 
-        if (projectiles.lifespan[i] <= 0 || projectiles.pierce[i] <= 0 || outOfBounds) {
+        if (projectiles.lifespan[i] <= 0 || projectiles.pierce[i] <= 0 || outOfBounds || hitTerrain) {
             deadIndices.push(i);
         }
     }

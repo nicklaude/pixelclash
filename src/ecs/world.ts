@@ -13,7 +13,8 @@
 
 import { Container, Graphics, Application } from 'pixi.js';
 import { Vec2 } from '../types';
-import { CELL_SIZE, ENEMY_DEFS, EMITTER_DEFS, KNOCKBACK_VELOCITY_THRESHOLD, getUpgradeMultiplier } from '../config';
+import { CELL_SIZE, ENEMY_DEFS, EMITTER_DEFS, KNOCKBACK_VELOCITY_THRESHOLD, getUpgradeMultiplier, UI_TOP_HEIGHT } from '../config';
+import { MapData, TILE_STONE, TILE_FOUNDATION, TILE_WATER, TILE_SAND, getTileAt } from '../MapGenerator';
 import {
     EnemyArrays, ProjectileArrays, EmitterArrays, DeathParticleArrays,
     createEnemyArrays, createProjectileArrays, createEmitterArrays, createDeathParticleArrays,
@@ -44,6 +45,9 @@ export class ECSWorld {
     // Path data (shared by all enemies)
     worldPath: Vec2[] = [];
 
+    // Map data (procedural map)
+    map: MapData | null = null;
+
     // Next entity ID counter
     private nextId: number = 1;
 
@@ -69,6 +73,50 @@ export class ECSWorld {
      */
     setWorldPath(path: Vec2[]): void {
         this.worldPath = path;
+    }
+
+    /**
+     * Set the map data (procedural map)
+     */
+    setMap(map: MapData): void {
+        this.map = map;
+        this.worldPath = map.path;
+    }
+
+    /**
+     * Get tile type at grid position
+     */
+    getTileAt(gx: number, gy: number): number {
+        if (!this.map) return TILE_STONE;
+        return getTileAt(this.map, gx, gy);
+    }
+
+    /**
+     * Check if a cell is a foundation (valid for turret placement)
+     */
+    isFoundation(gx: number, gy: number): boolean {
+        return this.getTileAt(gx, gy) === TILE_FOUNDATION;
+    }
+
+    /**
+     * Check if a cell is water
+     */
+    isWater(gx: number, gy: number): boolean {
+        return this.getTileAt(gx, gy) === TILE_WATER;
+    }
+
+    /**
+     * Check if a cell is stone (blocks projectiles)
+     */
+    isStone(gx: number, gy: number): boolean {
+        return this.getTileAt(gx, gy) === TILE_STONE;
+    }
+
+    /**
+     * Check if a cell is path
+     */
+    isPath(gx: number, gy: number): boolean {
+        return this.getTileAt(gx, gy) === TILE_SAND;
     }
 
     /**

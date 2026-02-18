@@ -177,15 +177,19 @@ export const EMITTER_TYPE_WATER = 0;
 export const EMITTER_TYPE_FIRE = 1;
 export const EMITTER_TYPE_ELECTRIC = 2;
 export const EMITTER_TYPE_GOO = 3;
+export const EMITTER_TYPE_SNIPER = 4;
+export const EMITTER_TYPE_SPLASH = 5;
 
 export const EMITTER_TYPE_MAP: Record<EmitterType, number> = {
     water: EMITTER_TYPE_WATER,
     fire: EMITTER_TYPE_FIRE,
     electric: EMITTER_TYPE_ELECTRIC,
     goo: EMITTER_TYPE_GOO,
+    sniper: EMITTER_TYPE_SNIPER,
+    splash: EMITTER_TYPE_SPLASH,
 };
 
-export const EMITTER_TYPE_REVERSE: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
+export const EMITTER_TYPE_REVERSE: EmitterType[] = ['water', 'fire', 'electric', 'goo', 'sniper', 'splash'];
 
 for (const [typeName, def] of Object.entries(EMITTER_DEFS)) {
     const typeId = EMITTER_TYPE_MAP[typeName as EmitterType];
