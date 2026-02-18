@@ -389,9 +389,13 @@ export class Game {
 
         const triggerWave = (e: FederatedPointerEvent) => {
             e.stopPropagation();
+            console.log('[Input] Wave button clicked');
             this.startWave();
         };
-        waveBtn.on('pointerup', triggerWave);
+        waveBtn.on('pointertap', triggerWave);
+        waveBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+        });
 
         this.uiLayer.addChild(waveBtn);
 
@@ -442,13 +446,19 @@ export class Game {
             btn.cursor = 'pointer';
             btn.hitArea = new Rectangle(0, 0, buttonWidth, buttonHeight);
 
-            // Use pointerup for consistent click behavior
+            // Use pointertap for reliable click on both desktop and mobile
+            // pointertap fires after a quick pointerdown+pointerup sequence
             const selectTower = (e: FederatedPointerEvent) => {
                 e.stopPropagation();
+                console.log('[Input] Tower button clicked:', type);
                 this.deleteMode = false;
                 this.setSelectedEmitterType(type);
             };
-            btn.on('pointerup', selectTower);
+            btn.on('pointertap', selectTower);
+            // Also listen to pointerdown for immediate feedback on mobile
+            btn.on('pointerdown', (e: FederatedPointerEvent) => {
+                e.stopPropagation();
+            });
 
             this.towerButtons.push(btn);
             this.uiLayer.addChild(btn);
@@ -484,13 +494,17 @@ export class Game {
         deleteBtn.cursor = 'pointer';
         deleteBtn.hitArea = new Rectangle(0, 0, deleteWidth, buttonHeight);
 
-        // Use pointerup for consistent click behavior
+        // Use pointertap for reliable click on both desktop and mobile
         const toggleDelete = (e: FederatedPointerEvent) => {
             e.stopPropagation();
+            console.log('[Input] Delete button clicked');
             this.deleteMode = !this.deleteMode;
             this.state.selectedEmitterType = null;
         };
-        deleteBtn.on('pointerup', toggleDelete);
+        deleteBtn.on('pointertap', toggleDelete);
+        deleteBtn.on('pointerdown', (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+        });
 
         this.deleteButton = deleteBtn;
         this.uiLayer.addChild(deleteBtn);
@@ -549,19 +563,56 @@ export class Game {
         (canvas.style as any).webkitTouchCallout = 'none';
 
         // Make stage interactive for all pointer events
+        // Use 'dynamic' for better mobile touch support
         this.app.stage.eventMode = 'static';
-        this.app.stage.hitArea = this.app.screen;
+        // Hit area needs to cover the full game area in game coordinates (before scale)
+        this.app.stage.hitArea = new Rectangle(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // Enable interactivity on children by default
+        this.app.stage.interactiveChildren = true;
 
-        // Use pointerup for click detection (works on both desktop and mobile)
+        // CRITICAL: For mobile, we need pointerdown to track that a touch started
+        // pointerup alone won't work reliably on mobile without a preceding pointerdown
+        this.app.stage.on('pointerdown', this.onPointerDown.bind(this));
         this.app.stage.on('pointermove', this.onPointerMove.bind(this));
         this.app.stage.on('pointerup', this.onPointerUp.bind(this));
+        // Also handle pointercancel for edge cases
+        this.app.stage.on('pointercancel', this.onPointerCancel.bind(this));
 
         // Keyboard
         window.addEventListener('keydown', this.onKeyDown.bind(this));
 
-        // Prevent default touch behaviors
-        canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
-        canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+        // Prevent default touch behaviors on canvas
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, { passive: false });
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, { passive: false });
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, { passive: false });
+
+        // Debug: log that input is set up
+        console.log('[Input] Setup complete, stage eventMode:', this.app.stage.eventMode);
+    }
+
+    // Track if pointer is down (needed for reliable mobile touch)
+    private pointerDown = false;
+
+    onPointerDown(e: FederatedPointerEvent) {
+        this.pointerDown = true;
+        // Update hover position on touch start too
+        const scale = (this.app as any).gameScale || 1;
+        this.hoverCell = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
+        console.log('[Input] pointerdown at', e.globalX, e.globalY, 'grid:', this.hoverCell);
+    }
+
+    onPointerCancel(e: FederatedPointerEvent) {
+        this.pointerDown = false;
+        console.log('[Input] pointercancel');
     }
 
     onPointerMove(e: FederatedPointerEvent) {
@@ -571,9 +622,13 @@ export class Game {
     }
 
     onPointerUp(e: FederatedPointerEvent) {
+        console.log('[Input] pointerup at', e.globalX, e.globalY, 'wasDown:', this.pointerDown);
+        this.pointerDown = false;
+
         // Scale coordinates to game space
         const scale = (this.app as any).gameScale || 1;
         const grid = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
+        console.log('[Input] grid:', grid, 'scale:', scale);
         if (!grid) return;
 
         // Check for existing emitter at this location
