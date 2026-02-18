@@ -43,6 +43,8 @@
             align-items: center;
             justify-content: center;
             padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            /* Prevent pull-to-refresh and other touch gestures on mobile */
+            overscroll-behavior: none;
         }
 
         h1 {
@@ -59,6 +61,8 @@
             border: 2px solid #333355;
             max-width: 100%;
             max-height: calc(100vh - 100px);
+            /* Prevent touch gestures from being intercepted by browser */
+            touch-action: none;
         }
 
         #game-container canvas {
@@ -66,6 +70,11 @@
             max-width: 100%;
             max-height: calc(100vh - 100px);
             object-fit: contain;
+            /* Critical for mobile touch - prevents browser from intercepting touch events */
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
         #loading {
@@ -185,6 +194,28 @@
             e.preventDefault();
             return false;
         });
+
+        // Additional touch handlers on game container for safety
+        const gameContainer = document.getElementById('game-container');
+        if (gameContainer) {
+            gameContainer.addEventListener('touchstart', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchmove', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+
+            gameContainer.addEventListener('touchend', (e) => {
+                if (e.target.tagName === 'CANVAS') {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+        }
     </script>
 </body>
 </html>
