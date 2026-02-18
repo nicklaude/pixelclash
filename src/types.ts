@@ -5,9 +5,9 @@ export interface Vec2 {
     y: number;
 }
 
-export type EmitterType = 'water' | 'fire' | 'electric' | 'goo';
-export type EnemyType = 'grunt' | 'tank' | 'fast' | 'shielded' | 'splitter' | 'boss';
-export type ParticleType = 'water' | 'fire' | 'electric' | 'goo';
+export type EmitterType = 'water' | 'fire' | 'electric' | 'goo' | 'sniper' | 'splash';
+export type EnemyType = 'grunt' | 'tank' | 'fast' | 'shielded' | 'splitter' | 'boss' | 'healer' | 'cloaked';
+export type ParticleType = 'water' | 'fire' | 'electric' | 'goo' | 'sniper' | 'splash';
 
 export interface EmitterDef {
     type: EmitterType;
@@ -30,6 +30,7 @@ export interface EmitterDef {
     slowFactor?: number;        // speed multiplier (goo)
     slowDuration?: number;
     puddleDuration?: number;    // goo puddles on ground
+    splashRadius?: number;      // area damage radius (splash tower)
 }
 
 export interface EnemyDef {
@@ -43,6 +44,9 @@ export interface EnemyDef {
     friction: number;           // how fast knockback decays (0-1, higher = slower decay)
     splitCount?: number;        // for splitter enemies
     spawnMinions?: boolean;     // for boss enemies
+    healRadius?: number;        // for healer enemies - range to heal allies
+    healAmount?: number;        // HP per second healed
+    cloaked?: boolean;          // for cloaked enemies - harder to target
 }
 
 export interface EmitterData {
