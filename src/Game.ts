@@ -363,8 +363,37 @@ export class Game {
 
         // Pause indicator
         this.pauseText = new Text({ text: '', style: { ...textStyle, fill: '#ffaa00' } });
-        this.pauseText.position.set(CANVAS_WIDTH - 100, 15);
+        this.pauseText.position.set(CANVAS_WIDTH - 180, 15);
         this.uiLayer.addChild(this.pauseText);
+
+        // Next Wave button (right aligned in top bar)
+        const waveBtn = new Container();
+        waveBtn.position.set(CANVAS_WIDTH - 90, 8);
+
+        const waveBtnBg = new Graphics();
+        waveBtnBg.roundRect(0, 0, 80, 34, 6)
+            .fill(0x44aa44);
+        waveBtn.addChild(waveBtnBg);
+
+        const waveBtnText = new Text({
+            text: '⚔️ WAVE',
+            style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        waveBtnText.anchor.set(0.5, 0.5);
+        waveBtnText.position.set(40, 17);
+        waveBtn.addChild(waveBtnText);
+
+        waveBtn.eventMode = 'static';
+        waveBtn.cursor = 'pointer';
+        waveBtn.hitArea = new Rectangle(0, 0, 80, 34);
+
+        const triggerWave = (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.startWave();
+        };
+        waveBtn.on('pointerup', triggerWave);
+
+        this.uiLayer.addChild(waveBtn);
 
         // Bottom bar
         const bottomBar = new Graphics();
@@ -520,14 +549,13 @@ export class Game {
         (canvas.style as any).webkitUserSelect = 'none';
         (canvas.style as any).webkitTouchCallout = 'none';
 
-        // Make game container interactive for grid clicks
-        this.gameContainer.eventMode = 'static';
-        this.gameContainer.hitArea = new Rectangle(0, UI_TOP_HEIGHT, GAME_WIDTH, GAME_HEIGHT);
+        // Make stage interactive for all pointer events
+        this.app.stage.eventMode = 'static';
+        this.app.stage.hitArea = this.app.screen;
 
-        // Grid interaction
-        this.gameContainer.on('pointermove', this.onPointerMove.bind(this));
-        this.gameContainer.on('pointerdown', this.onPointerDown.bind(this));
-        this.gameContainer.on('pointertap', this.onPointerDown.bind(this));
+        // Use pointerup for click detection (works on both desktop and mobile)
+        this.app.stage.on('pointermove', this.onPointerMove.bind(this));
+        this.app.stage.on('pointerup', this.onPointerUp.bind(this));
 
         // Keyboard
         window.addEventListener('keydown', this.onKeyDown.bind(this));
@@ -543,7 +571,7 @@ export class Game {
         this.hoverCell = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
     }
 
-    onPointerDown(e: FederatedPointerEvent) {
+    onPointerUp(e: FederatedPointerEvent) {
         // Scale coordinates to game space
         const scale = (this.app as any).gameScale || 1;
         const grid = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
@@ -1026,8 +1054,9 @@ export class Game {
     // ========== Game Actions ==========
 
     startWave() {
-        if (this.state.waveActive || this.state.gameOver) return;
+        if (this.state.gameOver) return;
 
+        // Allow overlapping waves - just increment and add more enemies
         this.state.wave++;
         this.state.waveActive = true;
 
