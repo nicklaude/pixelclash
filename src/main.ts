@@ -1,5 +1,5 @@
 import { Application } from 'pixi.js';
-import { Game } from './Game';
+import { GameECS } from './GameECS';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './config';
 
 async function init() {
@@ -40,7 +40,7 @@ async function init() {
     // Store scale for coordinate conversion
     (app as any).gameScale = scale;
 
-    const game = new Game(app);
+    const game = new GameECS(app);
 
     app.ticker.add((ticker) => {
         game.update(ticker.deltaMS / 1000);
