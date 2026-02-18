@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text, FederatedPointerEvent, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, FederatedPointerEvent, TextStyle, Rectangle } from 'pixi.js';
 import {
     GRID_SIZE, CELL_SIZE, GAME_WIDTH, GAME_HEIGHT, UI_TOP_HEIGHT, UI_BOTTOM_HEIGHT,
     PATH, NEXUS_X, NEXUS_Y, getPathCells,
@@ -174,6 +174,13 @@ export class Game {
         const g = this.gridGraphics;
         g.clear();
 
+        // Background gradient effect
+        for (let y = 0; y < GRID_SIZE; y++) {
+            const gradientAlpha = 0.03 + (y / GRID_SIZE) * 0.05;
+            g.rect(0, y * CELL_SIZE + UI_TOP_HEIGHT, GAME_WIDTH, CELL_SIZE)
+                .fill({ color: 0x000022, alpha: gradientAlpha });
+        }
+
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let y = 0; y < GRID_SIZE; y++) {
                 const key = `${x},${y}`;
@@ -184,14 +191,37 @@ export class Game {
 
                 let color: number;
                 if (isPath) {
+                    // Path tiles - cobblestone look
                     color = 0x3d3328;
+                    g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
+                        .fill(color);
+                    // Add subtle brick pattern
+                    g.rect(x * CELL_SIZE + 2, y * CELL_SIZE + 2 + UI_TOP_HEIGHT, CELL_SIZE - 4, 1)
+                        .fill({ color: 0x4a4038, alpha: 0.5 });
+                    g.rect(x * CELL_SIZE + 2, y * CELL_SIZE + UI_TOP_HEIGHT + CELL_SIZE / 2, CELL_SIZE - 4, 1)
+                        .fill({ color: 0x2a2318, alpha: 0.5 });
                 } else {
-                    color = ((x + y) % 2 === 0) ? 0x2a3a2a : 0x253525;
-                }
+                    // Grass tiles with texture
+                    color = ((x + y) % 2 === 0) ? 0x2a4a2a : 0x254525;
+                    g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
+                        .fill(color);
 
-                g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
-                    .fill(color);
+                    // Random grass tufts
+                    if ((x * 7 + y * 13) % 5 === 0) {
+                        const gx = x * CELL_SIZE + 8 + ((x * 3) % 20);
+                        const gy = y * CELL_SIZE + UI_TOP_HEIGHT + 10 + ((y * 7) % 16);
+                        g.rect(gx, gy, 2, 4).fill({ color: 0x3a6a3a, alpha: 0.7 });
+                        g.rect(gx + 3, gy + 2, 2, 3).fill({ color: 0x3a6a3a, alpha: 0.5 });
+                    }
+                }
             }
+        }
+
+        // Grid lines (subtle)
+        g.setStrokeStyle({ color: 0x000000, alpha: 0.1, width: 1 });
+        for (let i = 0; i <= GRID_SIZE; i++) {
+            g.moveTo(i * CELL_SIZE, UI_TOP_HEIGHT).lineTo(i * CELL_SIZE, UI_TOP_HEIGHT + GAME_HEIGHT).stroke();
+            g.moveTo(0, i * CELL_SIZE + UI_TOP_HEIGHT).lineTo(GAME_WIDTH, i * CELL_SIZE + UI_TOP_HEIGHT).stroke();
         }
     }
 
@@ -202,21 +232,59 @@ export class Game {
         const cx = NEXUS_X * CELL_SIZE + CELL_SIZE / 2;
         const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
 
-        this.nexusPulse += 0.05;
+        this.nexusPulse += 0.03;
         const pulse = 0.7 + Math.sin(this.nexusPulse) * 0.3;
-        const glowRadius = CELL_SIZE * 0.8 * pulse;
+        const fastPulse = 0.5 + Math.sin(this.nexusPulse * 3) * 0.5;
+
+        // Outer expanding rings
+        for (let i = 0; i < 3; i++) {
+            const ringPulse = (this.nexusPulse * 0.5 + i * 0.33) % 1;
+            const ringRadius = CELL_SIZE * 0.5 + ringPulse * CELL_SIZE * 0.8;
+            const ringAlpha = (1 - ringPulse) * 0.2;
+            g.circle(cx, cy, ringRadius)
+                .stroke({ color: 0x4488ff, alpha: ringAlpha, width: 2 });
+        }
 
         // Outer glow
-        g.circle(cx, cy, glowRadius)
-            .fill({ color: 0x2244aa, alpha: pulse * 0.3 });
+        g.circle(cx, cy, CELL_SIZE * 0.9 * pulse)
+            .fill({ color: 0x2244aa, alpha: pulse * 0.2 });
 
-        // Core
-        g.circle(cx, cy, CELL_SIZE * 0.4)
-            .fill(0x4488ff);
+        // Mid glow
+        g.circle(cx, cy, CELL_SIZE * 0.6 * pulse)
+            .fill({ color: 0x3366cc, alpha: pulse * 0.4 });
 
-        // Inner shine
-        g.circle(cx - 3, cy - 3, CELL_SIZE * 0.15)
-            .fill(0x88bbff);
+        // Core crystal shape (hexagon)
+        const coreSize = CELL_SIZE * 0.35;
+        const points: number[] = [];
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 - Math.PI / 2;
+            points.push(cx + Math.cos(angle) * coreSize);
+            points.push(cy + Math.sin(angle) * coreSize);
+        }
+        g.poly(points).fill(0x4488ff);
+        g.poly(points).stroke({ color: 0x66aaff, width: 2 });
+
+        // Inner core
+        g.circle(cx, cy, CELL_SIZE * 0.15)
+            .fill(0xaaccff);
+
+        // Sparkle effects
+        for (let i = 0; i < 4; i++) {
+            const sparkAngle = this.nexusPulse * 2 + i * Math.PI / 2;
+            const sparkDist = CELL_SIZE * 0.25 + fastPulse * 5;
+            const sx = cx + Math.cos(sparkAngle) * sparkDist;
+            const sy = cy + Math.sin(sparkAngle) * sparkDist;
+            g.circle(sx, sy, 2 + fastPulse * 2)
+                .fill({ color: 0xffffff, alpha: fastPulse * 0.8 });
+        }
+
+        // Health indicator ring
+        const healthPct = this.state.health / STARTING_HEALTH;
+        if (healthPct < 1) {
+            const healthColor = healthPct > 0.5 ? 0x44ff44 : healthPct > 0.25 ? 0xffcc00 : 0xff4444;
+            g.arc(cx, cy, CELL_SIZE * 0.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * healthPct)
+                .stroke({ color: healthColor, width: 3, alpha: 0.8 });
+        }
     }
 
     drawHoverCell() {
@@ -318,8 +386,38 @@ export class Game {
 
         // Pause indicator
         this.pauseText = new Text({ text: '', style: { ...textStyle, fill: '#ffaa00' } });
-        this.pauseText.position.set(CANVAS_WIDTH - 100, 15);
+        this.pauseText.position.set(CANVAS_WIDTH - 180, 15);
         this.uiLayer.addChild(this.pauseText);
+
+        // Next Wave button (right aligned in top bar)
+        const waveBtn = new Container();
+        waveBtn.position.set(CANVAS_WIDTH - 90, 8);
+
+        const waveBtnBg = new Graphics();
+        waveBtnBg.roundRect(0, 0, 80, 34, 6)
+            .fill(0x44aa44);
+        waveBtn.addChild(waveBtnBg);
+
+        const waveBtnText = new Text({
+            text: '⚔️ WAVE',
+            style: { fontFamily: 'monospace', fontSize: 12, fill: '#ffffff', fontWeight: 'bold' }
+        });
+        waveBtnText.anchor.set(0.5, 0.5);
+        waveBtnText.position.set(40, 17);
+        waveBtn.addChild(waveBtnText);
+
+        waveBtn.eventMode = 'static';
+        waveBtn.cursor = 'pointer';
+        waveBtn.hitArea = new Rectangle(0, 0, 80, 34);
+
+        const triggerWave = (e: FederatedPointerEvent) => {
+            e.stopPropagation();
+            this.startWave();
+        };
+        waveBtn.on('pointerdown', triggerWave);
+        waveBtn.on('pointertap', triggerWave);
+
+        this.uiLayer.addChild(waveBtn);
 
         // Bottom bar
         const bottomBar = new Graphics();
@@ -327,47 +425,52 @@ export class Game {
             .fill(0x16161e);
         this.uiLayer.addChild(bottomBar);
 
-        // Tower buttons
+        // Tower buttons - larger for mobile touch
         const types: EmitterType[] = ['water', 'fire', 'electric', 'goo'];
-        const buttonWidth = 80;
-        const buttonSpacing = 10;
+        const buttonWidth = 70;
+        const buttonHeight = 60;
+        const buttonSpacing = 8;
         const startX = (CANVAS_WIDTH - (types.length * buttonWidth + (types.length - 1) * buttonSpacing)) / 2;
 
         types.forEach((type, i) => {
             const def = EMITTER_DEFS[type];
             const btn = new Container();
-            btn.position.set(startX + i * (buttonWidth + buttonSpacing), GAME_HEIGHT + UI_TOP_HEIGHT + 15);
+            btn.position.set(startX + i * (buttonWidth + buttonSpacing), GAME_HEIGHT + UI_TOP_HEIGHT + 10);
 
             const bg = new Graphics();
-            bg.roundRect(0, 0, buttonWidth, 50, 8)
+            bg.roundRect(0, 0, buttonWidth, buttonHeight, 8)
                 .fill(0x333344);
             btn.addChild(bg);
 
+            // Larger icon for visibility
             const icon = new Graphics();
-            icon.circle(buttonWidth / 2, 18, 10)
+            icon.circle(buttonWidth / 2, 22, 14)
                 .fill(def.color);
+            // Inner glow
+            icon.circle(buttonWidth / 2 - 3, 19, 5)
+                .fill({ color: 0xffffff, alpha: 0.3 });
             btn.addChild(icon);
 
             const cost = new Text({
                 text: `$${def.cost}`,
-                style: { fontFamily: 'monospace', fontSize: 12, fill: '#aaaaaa' }
+                style: { fontFamily: 'monospace', fontSize: 14, fill: '#ffffff', fontWeight: 'bold' }
             });
             cost.anchor.set(0.5, 0);
-            cost.position.set(buttonWidth / 2, 32);
+            cost.position.set(buttonWidth / 2, 42);
             btn.addChild(cost);
 
-            // Key hint
-            const key = new Text({
-                text: `[${i + 1}]`,
-                style: { fontFamily: 'monospace', fontSize: 10, fill: '#666666' }
-            });
-            key.anchor.set(0.5, 0);
-            key.position.set(buttonWidth / 2, 44);
-            btn.addChild(key);
-
+            // Make button interactive with explicit hit area
             btn.eventMode = 'static';
             btn.cursor = 'pointer';
-            btn.on('pointerdown', () => this.setSelectedEmitterType(type));
+            btn.hitArea = new Rectangle(0, 0, buttonWidth, buttonHeight);
+
+            // Use both pointerdown and touchstart for maximum compatibility
+            const selectTower = (e: FederatedPointerEvent) => {
+                e.stopPropagation();
+                this.setSelectedEmitterType(type);
+            };
+            btn.on('pointerdown', selectTower);
+            btn.on('pointertap', selectTower);
 
             this.towerButtons.push(btn);
             this.uiLayer.addChild(btn);
@@ -391,12 +494,12 @@ export class Game {
 
             bg.clear();
             if (selected) {
-                bg.roundRect(0, 0, 80, 50, 8).fill(0x446688);
-                bg.roundRect(0, 0, 80, 50, 8).stroke({ color: 0x88aaff, width: 2 });
+                bg.roundRect(0, 0, 70, 60, 8).fill(0x446688);
+                bg.roundRect(0, 0, 70, 60, 8).stroke({ color: 0x88aaff, width: 3 });
             } else if (canAfford) {
-                bg.roundRect(0, 0, 80, 50, 8).fill(0x333344);
+                bg.roundRect(0, 0, 70, 60, 8).fill(0x333344);
             } else {
-                bg.roundRect(0, 0, 80, 50, 8).fill(0x222233);
+                bg.roundRect(0, 0, 70, 60, 8).fill(0x222233);
             }
         });
     }
@@ -407,16 +510,25 @@ export class Game {
         // Prevent touch scrolling/zooming on canvas
         const canvas = this.app.canvas;
         canvas.style.touchAction = 'none';
+        canvas.style.userSelect = 'none';
+        (canvas.style as any).webkitUserSelect = 'none';
+        (canvas.style as any).webkitTouchCallout = 'none';
 
-        // Make stage interactive
-        this.app.stage.eventMode = 'static';
-        this.app.stage.hitArea = this.app.screen;
+        // Make game container interactive for grid clicks
+        this.gameContainer.eventMode = 'static';
+        this.gameContainer.hitArea = new Rectangle(0, UI_TOP_HEIGHT, GAME_WIDTH, GAME_HEIGHT);
 
-        this.app.stage.on('pointermove', this.onPointerMove.bind(this));
-        this.app.stage.on('pointerdown', this.onPointerDown.bind(this));
+        // Grid interaction
+        this.gameContainer.on('pointermove', this.onPointerMove.bind(this));
+        this.gameContainer.on('pointerdown', this.onPointerDown.bind(this));
+        this.gameContainer.on('pointertap', this.onPointerDown.bind(this));
 
         // Keyboard
         window.addEventListener('keydown', this.onKeyDown.bind(this));
+
+        // Prevent default touch behaviors
+        canvas.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false });
+        canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
     }
 
     onPointerMove(e: FederatedPointerEvent) {
@@ -884,8 +996,9 @@ export class Game {
     // ========== Game Actions ==========
 
     startWave() {
-        if (this.state.waveActive || this.state.gameOver) return;
+        if (this.state.gameOver) return;
 
+        // Allow overlapping waves - just increment and add more enemies
         this.state.wave++;
         this.state.waveActive = true;
 
