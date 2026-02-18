@@ -310,8 +310,30 @@ export function getUpgradeMultiplier(level: number): { damage: number; range: nu
     };
 }
 
+// Default starting values (can be modified by difficulty presets)
 export const STARTING_GOLD = 200;  // More starting money
 export const STARTING_HEALTH = 20;
+
+// Functions to get difficulty-adjusted values
+export function getStartingGold(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): number {
+    const values = { easy: 300, normal: 200, hard: 150 };
+    return values[difficulty];
+}
+
+export function getStartingHealth(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): number {
+    const values = { easy: 30, normal: 20, hard: 10 };
+    return values[difficulty];
+}
+
+export function getEnemyHealthScale(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): number {
+    const values = { easy: 0.8, normal: 1.0, hard: 1.3 };
+    return values[difficulty];
+}
+
+export function getWaveRewardScale(difficulty: 'easy' | 'normal' | 'hard' = 'normal'): number {
+    const values = { easy: 1.2, normal: 1.0, hard: 0.8 };
+    return values[difficulty];
+}
 
 // Particle physics constants
 export const PARTICLE_TRAIL_LENGTH = 8;

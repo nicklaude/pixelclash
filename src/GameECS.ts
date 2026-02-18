@@ -17,7 +17,8 @@ import {
     PATH, NEXUS_X, NEXUS_Y, getPathCells,
     EMITTER_DEFS, ENEMY_DEFS, getUpgradeMultiplier,
     STARTING_GOLD, STARTING_HEALTH, generateWave, getUpgradeCost,
-    AUTO_WAVE_DELAY, CANVAS_WIDTH, CANVAS_HEIGHT
+    AUTO_WAVE_DELAY, CANVAS_WIDTH, CANVAS_HEIGHT,
+    getStartingGold, getStartingHealth, getEnemyHealthScale, getWaveRewardScale
 } from './config';
 import { GameState, EmitterType, EnemyType, Vec2, ParticleType } from './types';
 import { Emitter } from './objects/Emitter';
@@ -161,10 +162,13 @@ export class GameECS {
         // Initialize ECS world
         this.world = new ECSWorld();
 
-        // Initialize state
+        // Load settings from localStorage first to get difficulty
+        this.settings = loadSettings();
+
+        // Initialize state with difficulty-adjusted values
         this.state = {
-            gold: STARTING_GOLD,
-            health: STARTING_HEALTH,
+            gold: getStartingGold(this.settings.difficulty),
+            health: getStartingHealth(this.settings.difficulty),
             wave: 0,
             waveActive: false,
             selectedEmitterType: null,
@@ -237,8 +241,7 @@ export class GameECS {
         // Set up input
         this.setupInput();
 
-        // Load settings from localStorage
-        this.settings = loadSettings();
+        // Apply settings that were loaded in constructor
         this.autoWaveEnabled = this.settings.autoWaveEnabled;
         this.autoWaveTimer = this.settings.autoWaveDelay;
     }
@@ -887,11 +890,12 @@ export class GameECS {
                 // Handle splitter
                 const arch = this.world.getEnemyArchetype(death.typeId);
                 if (arch && arch.splitCount && arch.splitCount > 0) {
+                    const healthScale = getEnemyHealthScale(this.settings.difficulty);
                     for (let i = 0; i < arch.splitCount; i++) {
                         const angle = (Math.PI * 2 / arch.splitCount) * i;
                         const offsetX = Math.cos(angle) * 15;
                         const offsetY = Math.sin(angle) * 15;
-                        this.world.spawnEnemy('grunt', death.x + offsetX, death.y + offsetY, this.state.wave, 0.5);
+                        this.world.spawnEnemy('grunt', death.x + offsetX, death.y + offsetY, this.state.wave, 0.5, 0, healthScale);
                     }
                 }
 
@@ -1102,11 +1106,12 @@ export class GameECS {
 
             const arch = this.world.getEnemyArchetype(enemies.type[ei]);
             if (arch && arch.splitCount && arch.splitCount > 0) {
+                const healthScale = getEnemyHealthScale(this.settings.difficulty);
                 for (let i = 0; i < arch.splitCount; i++) {
                     const angle = (Math.PI * 2 / arch.splitCount) * i;
                     const offsetX = Math.cos(angle) * 15;
                     const offsetY = Math.sin(angle) * 15;
-                    this.world.spawnEnemy('grunt', enemies.x[ei] + offsetX, enemies.y[ei] + offsetY, this.state.wave, 0.5);
+                    this.world.spawnEnemy('grunt', enemies.x[ei] + offsetX, enemies.y[ei] + offsetY, this.state.wave, 0.5, 0, healthScale);
                 }
             }
 
@@ -1209,7 +1214,8 @@ export class GameECS {
 
     spawnEnemy(type: EnemyType, pos?: Vec2, scale: number = 1) {
         const startPos = pos || { ...this.worldPath[0] };
-        this.world.spawnEnemy(type, startPos.x, startPos.y, this.state.wave, scale);
+        const healthScale = getEnemyHealthScale(this.settings.difficulty);
+        this.world.spawnEnemy(type, startPos.x, startPos.y, this.state.wave, scale, 0, healthScale);
     }
 
     chainLightning(startEnemyIndex: number, damage: number, maxChains: number) {
@@ -1318,7 +1324,9 @@ export class GameECS {
             this.state.spawnQueue.length === 0) {
             this.state.waveActive = false;
             const waveDef = generateWave(this.state.wave);
-            this.state.gold += waveDef.reward;
+            // Apply difficulty-based reward scaling
+            const scaledReward = Math.floor(waveDef.reward * getWaveRewardScale(this.settings.difficulty));
+            this.state.gold += scaledReward;
         }
     }
 

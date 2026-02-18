@@ -91,6 +91,7 @@ export class ECSWorld {
 
     /**
      * Spawn an enemy at a position with optional scale
+     * @param difficultyHealthScale - Multiplier from difficulty settings (0.8 for easy, 1.0 for normal, 1.3 for hard)
      */
     spawnEnemy(
         typeName: string,
@@ -98,7 +99,8 @@ export class ECSWorld {
         y: number,
         waveNum: number,
         scale: number = 1,
-        startPathIndex: number = 0
+        startPathIndex: number = 0,
+        difficultyHealthScale: number = 1.0
     ): number {
         const e = this.enemies;
         if (e.count >= MAX_ENEMIES) return -1;
@@ -110,9 +112,9 @@ export class ECSWorld {
         const i = e.count++;
         const id = this.nextId++;
 
-        // Health scales with wave number
-        const healthScale = 1 + (waveNum - 1) * 0.2;
-        const scaledHealth = Math.round(arch.health * healthScale * scale);
+        // Health scales with wave number and difficulty
+        const waveHealthScale = 1 + (waveNum - 1) * 0.2;
+        const scaledHealth = Math.round(arch.health * waveHealthScale * scale * difficultyHealthScale);
 
         // Identity
         e.id[i] = id;
