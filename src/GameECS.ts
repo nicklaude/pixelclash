@@ -732,8 +732,9 @@ export class GameECS {
         if (e.key === '3') this.setSelectedEmitterType('electric');
         if (e.key === '4') this.setSelectedEmitterType('goo');
 
-        // Enhanced Escape key: cycles through deselect turret type -> deselect placed turret -> exit delete mode
-        if (e.key === 'Escape') {
+        // Enhanced Tab key: cycles through deselect turret type -> deselect placed turret -> exit delete mode
+        if (e.key === 'Tab') {
+            e.preventDefault();
             if (this.state.selectedEmitterType) {
                 this.state.selectedEmitterType = null;
             } else if (this.state.selectedEmitterId) {
@@ -1451,7 +1452,7 @@ export class GameECS {
             ['1-4', 'Select tower type'],
             ['Space/Enter', 'Start next wave'],
             ['P', 'Toggle auto-wave pause'],
-            ['Escape', 'Deselect/cancel'],
+            ['Tab', 'Deselect/cancel (cycle)'],
             ['Right-click', 'Deselect all'],
             ['Scroll wheel', 'Upgrade hovered turret'],
             ['? or H', 'Toggle this help'],
