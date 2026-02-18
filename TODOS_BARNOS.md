@@ -65,7 +65,7 @@ Panel appears anchored to the selected turret cell, nudged inward if near an edg
 
 ### 1.4 Panel Container
 
-Add `inspectPanel: Container | null = null` to `Game`.
+Add `inspectPanel: Container | null = null` to `GameECS` (the active game class post-ECS refactor).
 
 On `selectEmitter(id)`:
 1. Destroy old panel if any
@@ -76,13 +76,17 @@ On `selectEmitter(id)`:
 
 Panel should be added to `uiLayer` so it renders above all game objects.
 
+Note: emitters remain OOP (`Emitter extends Container` with `data_: EmitterData`) in the
+ECS architecture — only enemies and projectiles moved to typed arrays. So `totalInvestment`
+goes on `EmitterData` in `types.ts` as normal, and the panel reads from `emitter.data_` directly.
+
 ---
 
 ### 1.5 Implementation Checklist
 
-- [ ] Add `rangeGraphics: Graphics` to `Game`, insert into `effectLayer`
+- [ ] Add `rangeGraphics: Graphics` to `GameECS`, insert into `effectLayer`
 - [ ] Draw range ring in `selectEmitter()`, clear in deselect
-- [ ] Create `buildInspectPanel(emitter: Emitter): Container` helper in `Game`
+- [ ] Create `buildInspectPanel(emitter: Emitter): Container` helper in `GameECS`
 - [ ] Render all stats from table above using computed multipliers
 - [ ] Add Upgrade button → calls `upgradeEmitter()` then rebuilds panel
 - [ ] Track `totalInvestment` on `EmitterData` (base cost + every upgrade cost paid at placement/upgrade time)
@@ -219,23 +223,31 @@ Stone tiles get a subtle bevel: draw the cell slightly darker on bottom/right ed
   `tile === 'foundation'` only
 
 **Projectile vs. stone**
-- In `updateOptimizedProjectiles()`, after moving a projectile, check if its
-  grid cell is `stone`. If yes, remove the projectile immediately (no hit effect).
+- In `ecs/systems/movement.ts → updateProjectileMovement()`, after updating position,
+  convert the projectile's world coordinates to a grid cell and look up the tile.
+  If `stone`, mark the projectile dead (set lifespan to 0 or flag inactive).
+- The systems need access to the tile grid: add `tiles: TileType[][]` to `ECSWorld`
+  and pass it into the movement system call from `GameECS.update()`.
 
 **Projectile vs. water**
 - Water tiles are transparent to projectiles — no check needed, they pass freely.
 
 **Enemy vs. stone**
-- Path generator guarantees enemies never route through stone.
-- If knockback pushes an enemy into a stone cell, clamp its position back to
-  the nearest non-stone cell (simple AABB push-out).
+- Path generator guarantees enemies never route through stone under normal movement.
+- If knockback pushes an enemy into a stone cell, clamp its position back in
+  `ecs/systems/movement.ts → updateEnemyMovement()`: after applying velocity, if the
+  new grid cell is `stone`, reverse the displacement for that axis.
 
 **Enemy vs. water (drowning)**
-- Each frame, if enemy center lands on a water tile:
-  - If `def.size < 10` (small): apply rapid DOT (`300 damage/sec`) and spawn
-    splash particles. Enemy despawns when health hits 0 or on a 1-second timer.
-  - If `def.size >= 10` (large): apply strong deceleration (multiply velocity
-    by `0.5` each frame while on water), enemy cannot be pushed deeper in.
+- Add a terrain check pass in `ecs/systems/movement.ts` (or a new `terrain.ts` system):
+  each frame, if enemy center lands on a water tile:
+  - If `EF_HEAVY` flag NOT set (grunt, fast): call `world.applyDOT(i, 300, 1)` — rapid
+    burn. Enemy despawns via normal death path when health hits 0.
+  - If `EF_HEAVY` flag set (tank, shielded, splitter, boss): multiply `vx`/`vy` by `0.5`
+    while on water — strong drag, enemy cannot be pushed further in.
+- Splash particle burst on water-drown death: detect in `GameECS` death-processing loop
+  when a killed enemy's last tile was water, call `world.spawnDeathExplosion()` with a
+  blue-tinted color override.
 
 ---
 
@@ -288,15 +300,17 @@ Changes needed for a grid resize:
 - [ ] Export `MapData` from generator
 
 **Game Integration**
-- [ ] Call `generateMap()` in `Game` constructor, store as `this.map: MapData`
-- [ ] Replace `this.pathCells` / `this.worldPath` with `this.map` references
-- [ ] Update `Game.drawGrid()` to render per-tile colors + stone bevel + water shimmer
-- [ ] Update `canPlaceEmitter()` to check `tile === 'foundation'`
-- [ ] Update projectile update: despawn on `stone` tile hit
-- [ ] Update enemy update: push-out from stone cells on knockback
-- [ ] Update enemy update: apply water drowning logic (small vs. large)
-- [ ] Update `spawnEnemy()` to start from `MapData.path[0]` (generated spawn point)
-- [ ] Add splash particle burst on water-drown despawn
+- [ ] Call `generateMap()` in `GameECS` constructor, store as `this.map: MapData`
+- [ ] Store `this.map.tiles` on `ECSWorld` (add `tiles` field); pass to systems that need terrain checks
+- [ ] Call `world.setWorldPath(this.map.path)` instead of the old `this.worldPath` assignment
+- [ ] Remove `this.pathCells` usage from `GameECS` (replaced by `this.map.tiles`)
+- [ ] Update `GameECS.drawGrid()` to render per-tile colors + stone bevel + water shimmer
+- [ ] Update `canPlaceEmitter()` in `GameECS` to check `this.map.tiles[gy][gx] === 'foundation'`
+- [ ] Add stone tile check in `ecs/systems/movement.ts → updateProjectileMovement()`
+- [ ] Add stone push-out in `ecs/systems/movement.ts → updateEnemyMovement()`
+- [ ] Add water terrain pass in `ecs/systems/movement.ts` (or new `ecs/systems/terrain.ts`)
+- [ ] Update `world.spawnEnemy()` call in `GameECS` to start from `this.map.path[0]`
+- [ ] Detect water-drown deaths in `GameECS` death loop; call `world.spawnDeathExplosion()` with blue tint
 
 **Visual**
 - [ ] Stone bevel shading in `drawGrid()`
@@ -306,7 +320,87 @@ Changes needed for a grid resize:
 **Scaling**
 - [ ] Verify `fitToScreen` / `gameScale` logic still letterboxes correctly at new canvas size
 - [ ] Test bottom bar touch targets at 360px phone width
-- [ ] Adjust `enemySpatialHash` cell size constant if `CELL_SIZE` changed
+- [ ] Adjust spatial hash cell size in `ECSWorld` constructor (currently hardcoded `64`) if `CELL_SIZE` changed
+
+---
+
+## Feature 3: Game Speed Control
+
+### Vision
+Let players accelerate the game clock with `+` and slow back down with `-`.
+Three discrete steps for now — fast enough to skip slow early waves, slow enough
+to keep decisions readable. The speed multiplier applies uniformly to every `dt`
+value that flows through the ECS update loop, so all systems (movement, DOT,
+targeting, projectiles, death particles) scale together automatically.
+
+---
+
+### 3.1 Speed Steps
+
+| Step | Multiplier | Display |
+|------|-----------|---------|
+| Normal | `1.00×` | `▶` |
+| Fast | `1.25×` | `▶▶` |
+| Max | `1.50×` | `▶▶▶` |
+
+Pressing `+` (or `=` on keyboards without numpad) cycles **up**.
+Pressing `-` cycles **down**. Wraps at both ends (max → max, normal → normal, no wrap-around).
+
+---
+
+### 3.2 Implementation
+
+**State**
+Add to `GameECS` (and `Game` for legacy compatibility):
+```typescript
+speedSteps: number[] = [1.0, 1.25, 1.5];
+speedIndex: number = 0;
+get gameSpeed(): number { return this.speedSteps[this.speedIndex]; }
+```
+
+**`update(dt: number)`**
+Multiply incoming `dt` before passing it to any system:
+```typescript
+update(rawDt: number) {
+    const dt = rawDt * this.gameSpeed;
+    // ... rest of update as normal
+}
+```
+`rawDt` is the real elapsed time from the PixiJS ticker.
+Capping `dt` before multiplication (already done to prevent death spiral on tab focus)
+should use the raw value: `const dt = Math.min(rawDt, 0.05) * this.gameSpeed`.
+
+**Key handling** — add to `onKeyDown()` in `GameECS`:
+```typescript
+if (e.key === '+' || e.key === '=') {
+    this.speedIndex = Math.min(this.speedIndex + 1, this.speedSteps.length - 1);
+}
+if (e.key === '-') {
+    this.speedIndex = Math.max(this.speedIndex - 1, 0);
+}
+```
+
+**UI indicator** — add a small speed label to the top bar beside the pause text:
+```typescript
+// In updateUI():
+const icons = ['▶', '▶▶', '▶▶▶'];
+this.speedText.text = icons[this.speedIndex];
+```
+Reuse the existing monospace `TextStyle`. Color it `#aaffaa` when > 1×, white at 1×.
+
+---
+
+### 3.3 Implementation Checklist
+
+- [ ] Add `speedSteps` array and `speedIndex` to `GameECS` (and `Game`)
+- [ ] Multiply `dt` by `gameSpeed` at top of `update()`, before any system call
+- [ ] Respect existing `dt` cap (`Math.min(rawDt, 0.05)`) on the raw value before scaling
+- [ ] Add `+`/`=` and `-` key handling in `onKeyDown()`
+- [ ] Add `speedText: Text` to top bar UI (beside pause indicator)
+- [ ] Update `speedText` in `updateUI()` with icon + color change
+- [ ] Verify auto-wave timer uses scaled `dt` (it's inside `update()`, so it should automatically)
+- [ ] Verify chain effect timers, death particle timers, puddle timers all use `dt` (they do)
+- [ ] Quick smoke test: set to 1.5× during a wave, confirm enemies, projectiles, DOT all scale correctly
 
 ---
 
