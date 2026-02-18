@@ -77,6 +77,11 @@ export class Game {
     // Game container (for shake offset)
     gameContainer: Container;
 
+    // Background effects
+    backgroundStars: Array<{ x: number; y: number; size: number; twinkle: number; speed: number }> = [];
+    backgroundGraphics: Graphics;
+    ambientTime: number = 0;
+
     constructor(app: Application) {
         this.app = app;
 
@@ -121,9 +126,16 @@ export class Game {
         );
         app.stage.addChild(this.uiLayer);
 
+        // Create background graphics (below grid)
+        this.backgroundGraphics = new Graphics();
+        this.gridLayer.addChild(this.backgroundGraphics);
+
         // Create graphics objects
         this.gridGraphics = new Graphics();
         this.gridLayer.addChild(this.gridGraphics);
+
+        // Initialize background stars
+        this.initBackgroundEffects();
 
         this.nexusGraphics = new Graphics();
         this.gridLayer.addChild(this.nexusGraphics);
@@ -142,6 +154,74 @@ export class Game {
 
         // Set up input
         this.setupInput();
+    }
+
+    // ========== Background Effects ==========
+
+    initBackgroundEffects() {
+        // Create floating particles/stars for ambient effect
+        for (let i = 0; i < 60; i++) {
+            this.backgroundStars.push({
+                x: Math.random() * GAME_WIDTH,
+                y: Math.random() * GAME_HEIGHT + UI_TOP_HEIGHT,
+                size: 1 + Math.random() * 2,
+                twinkle: Math.random() * Math.PI * 2,
+                speed: 0.5 + Math.random() * 1.5,
+            });
+        }
+    }
+
+    drawBackground() {
+        const g = this.backgroundGraphics;
+        g.clear();
+
+        this.ambientTime += 0.02;
+
+        // Draw twinkling stars/motes
+        for (const star of this.backgroundStars) {
+            star.twinkle += star.speed * 0.05;
+            const alpha = 0.2 + Math.sin(star.twinkle) * 0.3;
+            const pulse = 1 + Math.sin(star.twinkle * 2) * 0.3;
+
+            // Soft glow
+            g.circle(star.x, star.y, star.size * pulse * 1.5)
+                .fill({ color: 0x4488ff, alpha: alpha * 0.3 });
+            g.circle(star.x, star.y, star.size * pulse)
+                .fill({ color: 0xaaccff, alpha: alpha });
+        }
+
+        // Animated path glow - energy flowing along the path
+        const glowPoints = 8;
+        for (let i = 0; i < glowPoints; i++) {
+            const progress = ((this.ambientTime * 0.3 + i / glowPoints) % 1);
+            const pathIndex = Math.floor(progress * (this.worldPath.length - 1));
+            const nextIndex = Math.min(pathIndex + 1, this.worldPath.length - 1);
+            const t = (progress * (this.worldPath.length - 1)) % 1;
+
+            const x = this.worldPath[pathIndex].x + (this.worldPath[nextIndex].x - this.worldPath[pathIndex].x) * t;
+            const y = this.worldPath[pathIndex].y + (this.worldPath[nextIndex].y - this.worldPath[pathIndex].y) * t;
+
+            const fadeIn = Math.min(1, progress * 5);
+            const fadeOut = 1 - Math.max(0, (progress - 0.8) * 5);
+            const alpha = fadeIn * fadeOut * 0.4;
+
+            g.circle(x, y, 8 + Math.sin(this.ambientTime * 3 + i) * 2)
+                .fill({ color: 0xff6644, alpha: alpha * 0.3 });
+            g.circle(x, y, 4)
+                .fill({ color: 0xffaa88, alpha: alpha });
+        }
+
+        // Corner vignette effect (dark edges)
+        const vignetteGrad = [
+            { x: 0, y: UI_TOP_HEIGHT, alpha: 0.3 },
+            { x: GAME_WIDTH, y: UI_TOP_HEIGHT, alpha: 0.3 },
+            { x: 0, y: GAME_HEIGHT + UI_TOP_HEIGHT, alpha: 0.3 },
+            { x: GAME_WIDTH, y: GAME_HEIGHT + UI_TOP_HEIGHT, alpha: 0.3 },
+        ];
+        for (const v of vignetteGrad) {
+            g.circle(v.x, v.y, CELL_SIZE * 3)
+                .fill({ color: 0x000011, alpha: v.alpha });
+        }
     }
 
     // ========== Grid Helpers ==========
@@ -174,11 +254,23 @@ export class Game {
         const g = this.gridGraphics;
         g.clear();
 
-        // Background gradient effect
+        // Deep space background gradient
         for (let y = 0; y < GRID_SIZE; y++) {
-            const gradientAlpha = 0.03 + (y / GRID_SIZE) * 0.05;
+            const gradientAlpha = 0.1 + (y / GRID_SIZE) * 0.15;
             g.rect(0, y * CELL_SIZE + UI_TOP_HEIGHT, GAME_WIDTH, CELL_SIZE)
-                .fill({ color: 0x000022, alpha: gradientAlpha });
+                .fill({ color: 0x0a0a1e, alpha: gradientAlpha });
+        }
+
+        // Draw path glow first (underneath tiles)
+        for (let x = 0; x < GRID_SIZE; x++) {
+            for (let y = 0; y < GRID_SIZE; y++) {
+                const key = `${x},${y}`;
+                if (this.pathCells.has(key)) {
+                    // Soft underglow for path
+                    g.rect(x * CELL_SIZE - 2, y * CELL_SIZE - 2 + UI_TOP_HEIGHT, CELL_SIZE + 4, CELL_SIZE + 4)
+                        .fill({ color: 0xff4422, alpha: 0.1 });
+                }
+            }
         }
 
         for (let x = 0; x < GRID_SIZE; x++) {
@@ -189,36 +281,76 @@ export class Game {
 
                 if (isNexus) continue;
 
-                let color: number;
-                if (isPath) {
-                    // Path tiles - cobblestone look
-                    color = 0x3d3328;
-                    g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
-                        .fill(color);
-                    // Add subtle brick pattern
-                    g.rect(x * CELL_SIZE + 2, y * CELL_SIZE + 2 + UI_TOP_HEIGHT, CELL_SIZE - 4, 1)
-                        .fill({ color: 0x4a4038, alpha: 0.5 });
-                    g.rect(x * CELL_SIZE + 2, y * CELL_SIZE + UI_TOP_HEIGHT + CELL_SIZE / 2, CELL_SIZE - 4, 1)
-                        .fill({ color: 0x2a2318, alpha: 0.5 });
-                } else {
-                    // Grass tiles with texture
-                    color = ((x + y) % 2 === 0) ? 0x2a4a2a : 0x254525;
-                    g.rect(x * CELL_SIZE + 1, y * CELL_SIZE + 1 + UI_TOP_HEIGHT, CELL_SIZE - 2, CELL_SIZE - 2)
-                        .fill(color);
+                const px = x * CELL_SIZE;
+                const py = y * CELL_SIZE + UI_TOP_HEIGHT;
 
-                    // Random grass tufts
-                    if ((x * 7 + y * 13) % 5 === 0) {
-                        const gx = x * CELL_SIZE + 8 + ((x * 3) % 20);
-                        const gy = y * CELL_SIZE + UI_TOP_HEIGHT + 10 + ((y * 7) % 16);
-                        g.rect(gx, gy, 2, 4).fill({ color: 0x3a6a3a, alpha: 0.7 });
-                        g.rect(gx + 3, gy + 2, 2, 3).fill({ color: 0x3a6a3a, alpha: 0.5 });
+                if (isPath) {
+                    // Lava/molten path - dangerous looking
+                    const baseColor = 0x2a1a0a;
+                    g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2)
+                        .fill(baseColor);
+
+                    // Cracks with lava glow
+                    const crackSeed = (x * 17 + y * 31) % 7;
+                    g.moveTo(px + 4, py + 4);
+                    g.lineTo(px + CELL_SIZE / 2 + crackSeed, py + CELL_SIZE / 2);
+                    g.lineTo(px + CELL_SIZE - 4, py + CELL_SIZE - 6);
+                    g.stroke({ color: 0xff6633, alpha: 0.6, width: 2 });
+
+                    // Additional crack
+                    if (crackSeed > 3) {
+                        g.moveTo(px + CELL_SIZE - 6, py + 5);
+                        g.lineTo(px + CELL_SIZE / 2, py + CELL_SIZE - 5);
+                        g.stroke({ color: 0xff4422, alpha: 0.4, width: 1 });
                     }
+
+                    // Hot spots
+                    g.circle(px + 8 + (crackSeed * 2), py + 12 + crackSeed, 3)
+                        .fill({ color: 0xff8844, alpha: 0.5 });
+
+                    // Edge highlight
+                    g.rect(px + 1, py + 1, CELL_SIZE - 2, 2)
+                        .fill({ color: 0x442211, alpha: 0.6 });
+                } else {
+                    // Crystal/alien terrain
+                    const shade = ((x + y) % 2 === 0) ? 0x1a2a3a : 0x152535;
+                    g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2)
+                        .fill(shade);
+
+                    // Crystal formations
+                    const crystalSeed = (x * 11 + y * 23) % 9;
+                    if (crystalSeed < 2) {
+                        // Small crystal cluster
+                        const cx = px + 8 + (crystalSeed * 6);
+                        const cy = py + 10 + (crystalSeed * 4);
+                        g.moveTo(cx, cy + 8);
+                        g.lineTo(cx - 3, cy + 3);
+                        g.lineTo(cx, cy - 2);
+                        g.lineTo(cx + 3, cy + 3);
+                        g.closePath();
+                        g.fill({ color: 0x44aacc, alpha: 0.4 });
+                        g.stroke({ color: 0x66ccee, alpha: 0.3, width: 1 });
+                    } else if (crystalSeed === 3) {
+                        // Alien plant
+                        g.circle(px + 20, py + 18, 4)
+                            .fill({ color: 0x33ff88, alpha: 0.2 });
+                        g.circle(px + 20, py + 18, 2)
+                            .fill({ color: 0x88ffaa, alpha: 0.4 });
+                    } else if (crystalSeed === 5) {
+                        // Small rock
+                        g.ellipse(px + 14, py + 20, 6, 4)
+                            .fill({ color: 0x2a3a4a, alpha: 0.7 });
+                    }
+
+                    // Subtle grid texture
+                    g.rect(px + 2, py + CELL_SIZE - 3, CELL_SIZE - 4, 1)
+                        .fill({ color: 0x0a1a2a, alpha: 0.4 });
                 }
             }
         }
 
-        // Grid lines (subtle)
-        g.setStrokeStyle({ color: 0x000000, alpha: 0.1, width: 1 });
+        // Grid lines (subtle cyan glow)
+        g.setStrokeStyle({ color: 0x224466, alpha: 0.15, width: 1 });
         for (let i = 0; i <= GRID_SIZE; i++) {
             g.moveTo(i * CELL_SIZE, UI_TOP_HEIGHT).lineTo(i * CELL_SIZE, UI_TOP_HEIGHT + GAME_HEIGHT).stroke();
             g.moveTo(0, i * CELL_SIZE + UI_TOP_HEIGHT).lineTo(GAME_WIDTH, i * CELL_SIZE + UI_TOP_HEIGHT).stroke();
@@ -532,11 +664,15 @@ export class Game {
     }
 
     onPointerMove(e: FederatedPointerEvent) {
-        this.hoverCell = this.pixelToGrid(e.globalX, e.globalY);
+        // Scale coordinates to game space
+        const scale = (this.app as any).gameScale || 1;
+        this.hoverCell = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
     }
 
     onPointerDown(e: FederatedPointerEvent) {
-        const grid = this.pixelToGrid(e.globalX, e.globalY);
+        // Scale coordinates to game space
+        const scale = (this.app as any).gameScale || 1;
+        const grid = this.pixelToGrid(e.globalX / scale, e.globalY / scale);
         if (!grid) return;
 
         if (this.state.selectedEmitterType) {
@@ -592,6 +728,7 @@ export class Game {
         this.updateScreenShake(dt);
 
         // Draw dynamic elements
+        this.drawBackground();
         this.drawNexus();
         this.drawChainEffects();
         this.drawDeathParticles();
