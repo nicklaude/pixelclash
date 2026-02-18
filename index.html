@@ -146,10 +146,37 @@
                 padding: 0;
             }
         }
+
+        /* Debug info bar above game */
+        #debug-info {
+            display: none;
+            justify-content: flex-end;
+            gap: 1rem;
+            width: 100%;
+            max-width: 576px;  /* Match default game canvas width */
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            color: #88ff88;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 4px 4px 0 0;
+            margin-bottom: -2px;
+        }
+
+        #debug-info.visible {
+            display: flex;
+        }
+
+        #debug-info span {
+            font-family: 'Courier New', monospace;
+        }
     </style>
 </head>
 <body>
     <h1>🏰 PixelClash</h1>
+    <div id="debug-info">
+        <span id="fps-display">FPS: --</span>
+        <span id="entity-display">E:0 P:0 T:0</span>
+    </div>
     <div id="game-container">
         <div id="loading">Loading...</div>
     </div>

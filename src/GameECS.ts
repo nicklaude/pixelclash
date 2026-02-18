@@ -19,11 +19,10 @@ import {
     STARTING_GOLD, STARTING_HEALTH, generateWave, getUpgradeCost,
     AUTO_WAVE_DELAY, CANVAS_WIDTH, CANVAS_HEIGHT
 } from './config';
-import { GameState, EmitterType, EnemyType, Vec2, ParticleType, MapData, TILE_SAND, TILE_STONE, TILE_WATER, TILE_NEXUS, TILE_FOUNDATION } from './types';
+import { GameState, EmitterType, EnemyType, Vec2, ParticleType } from './types';
 import { Emitter } from './objects/Emitter';
 import { Puddle } from './objects/Puddle';
 import { GameSettings, DEFAULT_SETTINGS, DIFFICULTY_PRESETS, saveSettings, loadSettings } from './ui/SettingsMenu';
-import { generateMap } from './MapGenerator';
 
 // ECS imports
 import {
@@ -136,10 +135,6 @@ export class GameECS {
     // Settings state
     settings: GameSettings = { ...DEFAULT_SETTINGS };
 
-    // Debug displays
-    fpsText: Text | null = null;
-    entityText: Text | null = null;
-
     // Reusable arrays to avoid per-frame allocations
     private reachedEndIndices: number[] = [];
     private dotKilledIndices: number[] = [];
@@ -180,21 +175,10 @@ export class GameECS {
             paused: false,
         };
 
-        // Initialize path - Phase 6: Use procedural map generation
-        const map = generateMap({ gridSize: GRID_SIZE });
-        this.world.setMap(map);
-        this.worldPath = map.path;
-
-        // Build path cells set from map data (sand tiles)
-        this.pathCells = new Set<string>();
-        for (let y = 0; y < map.height; y++) {
-            for (let x = 0; x < map.width; x++) {
-                const tile = map.tiles[y * map.width + x];
-                if (tile === TILE_SAND) {
-                    this.pathCells.add(`${x},${y}`);
-                }
-            }
-        }
+        // Initialize path using fixed path from config
+        this.pathCells = getPathCells();
+        this.worldPath = PATH.map(p => this.gridToPixel(p.x, p.y));
+        this.world.setWorldPath(this.worldPath);
 
         // Initialize spatial hash for puddles
         this.puddleSpatialHash = new SpatialHash<Puddle>(64);
@@ -276,14 +260,13 @@ export class GameECS {
     }
 
     canPlaceEmitter(gx: number, gy: number): boolean {
-        // Phase 6: Check tile type - only foundation tiles allow turret placement
-        const tile = this.world.getTileAt(gx, gy);
-        if (tile !== TILE_FOUNDATION) return false;
-
-        // Check if already occupied by another emitter
         const key = `${gx},${gy}`;
+        // Cannot place on path
+        if (this.pathCells.has(key)) return false;
+        // Cannot place on already occupied cell
         if (this.occupiedCells.has(key)) return false;
-
+        // Cannot place on nexus
+        if (gx === NEXUS_X && gy === NEXUS_Y) return false;
         return true;
     }
 
@@ -293,72 +276,15 @@ export class GameECS {
         const g = this.gridGraphics;
         g.clear();
 
-        const map = this.world.map;
-        if (!map) {
-            return this.drawGridLegacy();
-        }
-
-        // Phase 6: Tile colors
-        const TILE_COLORS: Record<number, number> = {
-            [TILE_SAND]: 0xc8a96e,
-            [TILE_STONE]: 0x667788,
-            [TILE_WATER]: 0x2255aa,
-            [TILE_NEXUS]: 0x4488ff,
-            [TILE_FOUNDATION]: 0x4a4a3a,
-        };
-
-        for (let y = 0; y < map.height; y++) {
-            for (let x = 0; x < map.width; x++) {
-                const tile = map.tiles[y * map.width + x];
-                if (tile === TILE_NEXUS) continue;  // Drawn by drawNexus()
-
-                const color = TILE_COLORS[tile] ?? 0x333333;
-                const px = x * CELL_SIZE;
-                const py = y * CELL_SIZE + UI_TOP_HEIGHT;
-
-                g.rect(px + 1, py + 1, CELL_SIZE - 2, CELL_SIZE - 2).fill(color);
-
-                // Stone bevel (darker bottom/right edges)
-                if (tile === TILE_STONE) {
-                    g.rect(px + 1, py + CELL_SIZE - 3, CELL_SIZE - 2, 2)
-                        .fill(this.darkenColor(color, 0.7));
-                    g.rect(px + CELL_SIZE - 3, py + 1, 2, CELL_SIZE - 4)
-                        .fill(this.darkenColor(color, 0.7));
-                }
-
-                // Water shimmer - animated in drawNexus for efficiency
-                if (tile === TILE_WATER) {
-                    const shimmerY = ((this.nexusPulse * 10) % (CELL_SIZE * 2)) - CELL_SIZE;
-                    g.rect(px + 2, py + Math.max(2, shimmerY), CELL_SIZE - 4, 3)
-                        .fill({ color: 0x88aaff, alpha: 0.3 });
-                }
-
-                // Foundation corner dots
-                if (tile === TILE_FOUNDATION) {
-                    g.circle(px + 4, py + 4, 1.5).fill(0x5a5a4a);
-                    g.circle(px + CELL_SIZE - 4, py + 4, 1.5).fill(0x5a5a4a);
-                    g.circle(px + 4, py + CELL_SIZE - 4, 1.5).fill(0x5a5a4a);
-                    g.circle(px + CELL_SIZE - 4, py + CELL_SIZE - 4, 1.5).fill(0x5a5a4a);
-                }
-            }
-        }
-    }
-
-    /**
-     * Legacy grid drawing (fallback if no map generated)
-     */
-    drawGridLegacy() {
-        const g = this.gridGraphics;
-
         for (let x = 0; x < GRID_SIZE; x++) {
             for (let y = 0; y < GRID_SIZE; y++) {
                 const key = `${x},${y}`;
                 const isPath = this.pathCells.has(key);
-                const nexus = this.world.map?.nexus ?? { x: NEXUS_X, y: NEXUS_Y };
-                const isNexus = x === nexus.x && y === nexus.y;
+                const isNexus = x === NEXUS_X && y === NEXUS_Y;
 
                 if (isNexus) continue;
 
+                // Checkerboard pattern
                 let color: number;
                 if (isPath) {
                     color = 0x3d3328;
@@ -386,10 +312,8 @@ export class GameECS {
         const g = this.nexusGraphics;
         g.clear();
 
-        // Phase 6: Get nexus position from map
-        const nexus = this.world.map?.nexus ?? { x: NEXUS_X, y: NEXUS_Y };
-        const cx = nexus.x * CELL_SIZE + CELL_SIZE / 2;
-        const cy = nexus.y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
+        const cx = NEXUS_X * CELL_SIZE + CELL_SIZE / 2;
+        const cy = NEXUS_Y * CELL_SIZE + CELL_SIZE / 2 + UI_TOP_HEIGHT;
 
         this.nexusPulse += 0.05;
         const pulse = 0.7 + Math.sin(this.nexusPulse) * 0.3;
@@ -401,9 +325,6 @@ export class GameECS {
             .fill(0x4488ff);
         g.circle(cx - 3, cy - 3, CELL_SIZE * 0.15)
             .fill(0x88bbff);
-
-        // Redraw grid each frame for animated water shimmer
-        this.drawGrid();
     }
 
     drawHoverCell() {
@@ -720,12 +641,18 @@ export class GameECS {
             }
         }
 
-        // Update debug displays
-        if (this.fpsText && this.settings.showFPS) {
-            this.fpsText.text = `FPS: ${Math.round(this.app.ticker.FPS)}`;
+        // Update HTML debug displays
+        if (this.settings.showFPS) {
+            const fpsDisplay = document.getElementById('fps-display');
+            if (fpsDisplay) {
+                fpsDisplay.textContent = `FPS: ${Math.round(this.app.ticker.FPS)}`;
+            }
         }
-        if (this.entityText && this.settings.showEntityCount) {
-            this.entityText.text = `E:${this.world.enemies.count} P:${this.world.projectiles.count} T:${this.emitters.length}`;
+        if (this.settings.showEntityCount) {
+            const entityDisplay = document.getElementById('entity-display');
+            if (entityDisplay) {
+                entityDisplay.textContent = `E:${this.world.enemies.count} P:${this.world.projectiles.count} T:${this.emitters.length}`;
+            }
         }
     }
 
@@ -1937,32 +1864,22 @@ export class GameECS {
     }
 
     private updateDebugDisplays() {
-        // Create or remove FPS display
-        if (this.settings.showFPS && !this.fpsText) {
-            this.fpsText = new Text({
-                text: 'FPS: --',
-                style: { fontFamily: 'monospace', fontSize: 12, fill: '#88ff88' }
-            });
-            this.fpsText.position.set(CANVAS_WIDTH - 70, 3);
-            this.uiLayer.addChild(this.fpsText);
-        } else if (!this.settings.showFPS && this.fpsText) {
-            this.uiLayer.removeChild(this.fpsText);
-            this.fpsText.destroy();
-            this.fpsText = null;
+        // Update HTML debug bar visibility
+        const debugBar = document.getElementById('debug-info');
+        const fpsDisplay = document.getElementById('fps-display');
+        const entityDisplay = document.getElementById('entity-display');
+
+        if (debugBar) {
+            const showDebug = this.settings.showFPS || this.settings.showEntityCount;
+            debugBar.classList.toggle('visible', showDebug);
         }
 
-        // Create or remove entity count display
-        if (this.settings.showEntityCount && !this.entityText) {
-            this.entityText = new Text({
-                text: 'E:0 P:0 T:0',
-                style: { fontFamily: 'monospace', fontSize: 12, fill: '#88ff88' }
-            });
-            this.entityText.position.set(CANVAS_WIDTH - 140, 35);
-            this.uiLayer.addChild(this.entityText);
-        } else if (!this.settings.showEntityCount && this.entityText) {
-            this.uiLayer.removeChild(this.entityText);
-            this.entityText.destroy();
-            this.entityText = null;
+        if (fpsDisplay) {
+            fpsDisplay.style.display = this.settings.showFPS ? 'inline' : 'none';
+        }
+
+        if (entityDisplay) {
+            entityDisplay.style.display = this.settings.showEntityCount ? 'inline' : 'none';
         }
     }
 

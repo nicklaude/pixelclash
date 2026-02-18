@@ -12,7 +12,7 @@
  */
 
 import { Container, Graphics, Application } from 'pixi.js';
-import { Vec2, MapData, TILE_STONE, TILE_FOUNDATION } from '../types';
+import { Vec2 } from '../types';
 import { CELL_SIZE, ENEMY_DEFS, EMITTER_DEFS, KNOCKBACK_VELOCITY_THRESHOLD, getUpgradeMultiplier } from '../config';
 import {
     EnemyArrays, ProjectileArrays, EmitterArrays, DeathParticleArrays,
@@ -44,9 +44,6 @@ export class ECSWorld {
     // Path data (shared by all enemies)
     worldPath: Vec2[] = [];
 
-    // Map data (Phase 6: procedural maps)
-    map: MapData | null = null;
-
     // Next entity ID counter
     private nextId: number = 1;
 
@@ -72,25 +69,6 @@ export class ECSWorld {
      */
     setWorldPath(path: Vec2[]): void {
         this.worldPath = path;
-    }
-
-    /**
-     * Set the map data (Phase 6: procedural maps)
-     */
-    setMap(map: MapData): void {
-        this.map = map;
-        this.worldPath = map.path;
-    }
-
-    /**
-     * Get tile at grid position (Phase 6)
-     */
-    getTileAt(gx: number, gy: number): number {
-        if (!this.map) return TILE_STONE;
-        if (gx < 0 || gx >= this.map.width || gy < 0 || gy >= this.map.height) {
-            return TILE_STONE;
-        }
-        return this.map.tiles[gy * this.map.width + gx];
     }
 
     /**
