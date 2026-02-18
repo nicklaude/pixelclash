@@ -11,6 +11,7 @@ import { Enemy } from './objects/Enemy';
 import { Emitter } from './objects/Emitter';
 import { Projectile } from './objects/Projectile';
 import { Puddle } from './objects/Puddle';
+import { ParticleSystem, ProjectileData } from './objects/ParticleSystem';
 
 export class Game {
     app: Application;
@@ -29,6 +30,10 @@ export class Game {
     emitters: Emitter[] = [];
     projectiles: Projectile[] = [];
     puddles: Puddle[] = [];
+
+    // Optimized particle system (batched rendering)
+    particleSystem: ParticleSystem | null = null;
+    useOptimizedParticles: boolean = true;
 
     // Path data
     pathCells: Set<string>;
@@ -124,6 +129,13 @@ export class Game {
             this.effectLayer
         );
         app.stage.addChild(this.uiLayer);
+
+        // Initialize optimized particle system
+        if (this.useOptimizedParticles) {
+            this.particleSystem = new ParticleSystem(app);
+            // Add particle system container after projectile layer for proper z-order
+            this.gameContainer.addChild(this.particleSystem.getContainer());
+        }
 
         // Create graphics objects
         this.gridGraphics = new Graphics();
@@ -323,6 +335,12 @@ export class Game {
     }
 
     drawDeathParticles() {
+        // Optimized particle system renders death particles via GPU batching
+        if (this.useOptimizedParticles && this.particleSystem) {
+            return;
+        }
+
+        // Fallback to legacy Graphics-based rendering
         const g = this.chainGraphics; // reuse
         for (const p of this.deathParticles) {
             const alpha = Math.min(1, p.life * 2);
@@ -854,6 +872,13 @@ export class Game {
     }
 
     updateProjectiles(dt: number) {
+        // Use optimized particle system if available
+        if (this.useOptimizedParticles && this.particleSystem) {
+            this.updateOptimizedProjectiles(dt);
+            return;
+        }
+
+        // Fallback to legacy projectile system
         const toRemove: Projectile[] = [];
 
         for (const proj of this.projectiles) {
@@ -924,6 +949,77 @@ export class Game {
         }
     }
 
+    /**
+     * Optimized projectile update using batched ParticleContainer
+     */
+    updateOptimizedProjectiles(dt: number) {
+        if (!this.particleSystem) return;
+
+        // Update particle system physics
+        this.particleSystem.update(dt);
+
+        // Check collisions for all active projectiles
+        const projectiles = this.particleSystem.getProjectiles();
+
+        for (const proj of projectiles) {
+            if (!proj.active) continue;
+
+            // Check collisions with enemies
+            for (const enemy of this.enemies) {
+                if (this.particleSystem.hasHitEnemy(proj, enemy.data_.id)) continue;
+
+                const def = ENEMY_DEFS[enemy.data_.type];
+                const dx = enemy.x - proj.x;
+                const dy = enemy.y - proj.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < def.size + 6) {
+                    this.particleSystem.registerHit(proj, enemy.data_.id);
+
+                    const killed = enemy.takeDamage(proj.damage);
+
+                    if (!killed) {
+                        // Knockback
+                        const velMag = Math.sqrt(proj.vx ** 2 + proj.vy ** 2);
+                        if (velMag > 0) {
+                            const nx = proj.vx / velMag;
+                            const ny = proj.vy / velMag;
+                            enemy.applyKnockback(
+                                nx * proj.knockbackForce,
+                                ny * proj.knockbackForce
+                            );
+                        }
+
+                        // Special effects
+                        const emitterDef = EMITTER_DEFS[proj.type];
+
+                        if (emitterDef.dotDamage && emitterDef.dotDuration) {
+                            enemy.applyDOT(emitterDef.dotDamage, emitterDef.dotDuration);
+                        }
+
+                        if (emitterDef.slowFactor && emitterDef.slowDuration) {
+                            enemy.applySlow(emitterDef.slowFactor, emitterDef.slowDuration);
+                        }
+
+                        if (emitterDef.chainCount && emitterDef.chainCount > 0) {
+                            this.chainLightning(enemy, proj.damage * 0.6, emitterDef.chainCount);
+                        }
+
+                        if (emitterDef.puddleDuration) {
+                            this.createOrExpandPuddle(proj.x, proj.y, emitterDef);
+                        }
+                    }
+
+                    // Check if projectile should be removed
+                    if (proj.pierce <= 0) {
+                        this.particleSystem.removeProjectile(proj);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     updatePuddles(dt: number) {
         const toRemove: Puddle[] = [];
 
@@ -948,6 +1044,13 @@ export class Game {
     }
 
     updateDeathParticles(dt: number) {
+        // Optimized particle system handles death particles internally
+        if (this.useOptimizedParticles && this.particleSystem) {
+            // Already updated in particleSystem.update()
+            return;
+        }
+
+        // Fallback to legacy system
         this.deathParticles = this.deathParticles.filter(p => {
             p.x += p.vx * dt;
             p.y += p.vy * dt;
@@ -994,6 +1097,36 @@ export class Game {
     }
 
     spawnProjectile(emitter: Emitter, angle: number, mult: { damage: number; knockback: number }) {
+        // Use optimized particle system if available
+        if (this.useOptimizedParticles && this.particleSystem) {
+            if (this.particleSystem.projectileCount >= MAX_PARTICLES) return;
+
+            const def = EMITTER_DEFS[emitter.data_.type];
+
+            // Add spread
+            const spreadAngle = angle + (Math.random() - 0.5) * def.spreadAngle;
+
+            const vx = Math.cos(spreadAngle) * def.particleSpeed;
+            const vy = Math.sin(spreadAngle) * def.particleSpeed;
+
+            this.particleSystem.spawnProjectile(
+                emitter.x,
+                emitter.y,
+                vx,
+                vy,
+                def.type as ParticleType,
+                def.damage * mult.damage,
+                def.particlePierce,
+                def.particleLifespan,
+                def.knockbackForce * mult.knockback,
+                def.color,
+                3 + emitter.data_.level,
+                emitter.data_.id
+            );
+            return;
+        }
+
+        // Fallback to legacy system
         if (this.projectiles.length >= MAX_PARTICLES) return;
 
         const def = EMITTER_DEFS[emitter.data_.type];
@@ -1024,6 +1157,13 @@ export class Game {
     }
 
     spawnDeathExplosion(x: number, y: number, color: number, size: number) {
+        // Use optimized particle system if available
+        if (this.useOptimizedParticles && this.particleSystem) {
+            this.particleSystem.spawnDeathExplosion(x, y, color, size);
+            return;
+        }
+
+        // Fallback to legacy system
         const count = Math.floor(8 + size * 0.5);
         for (let i = 0; i < count; i++) {
             const angle = (Math.PI * 2 / count) * i + Math.random() * 0.5;
